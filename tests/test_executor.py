@@ -281,3 +281,55 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     assert len(sent) == 1, "Email should be sent even with no papers when send_empty=true"
     _, _, body = sent[0]
     assert "text/html" in body
+
+
+def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, monkeypatch):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.protocol import Paper
+
+    with open_dict(config):
+        config.executor.rerank_candidate_num = 50
+        config.executor.max_paper_num = 20
+        config.executor.send_empty = False
+
+    all_candidates = [make_sample_paper(title=f"Paper {i}") for i in range(60)]
+    seen_by_reranker = []
+    summarized = []
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return all_candidates
+
+    class StubReranker:
+        def rerank(self, papers, corpus):
+            seen_by_reranker.extend(papers)
+            for score, paper in enumerate(reversed(papers)):
+                paper.score = float(score)
+            return list(reversed(papers))
+
+    def fake_tldr(self, openai_client, llm_params):
+        summarized.append(self.title)
+        self.tldr = "summary"
+        return self.tldr
+
+    monkeypatch.setattr(Paper, "generate_tldr", fake_tldr)
+    monkeypatch.setattr(Paper, "generate_affiliations", lambda self, openai_client, llm_params: [])
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = StubReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert len(seen_by_reranker) == 50
+    assert [paper.title for paper in seen_by_reranker[:2]] == ["Paper 0", "Paper 1"]
+    assert len(summarized) == 20
+    assert summarized[0] == "Paper 49"
+    assert summarized[-1] == "Paper 30"
