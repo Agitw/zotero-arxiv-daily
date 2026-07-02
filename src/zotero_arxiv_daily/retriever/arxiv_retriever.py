@@ -19,6 +19,7 @@ T = TypeVar("T")
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
+SUBPROCESS_START_TIMEOUT = 30
 
 
 def _download_file(url: str, path: str) -> None:
@@ -36,6 +37,7 @@ def _run_in_subprocess(
     args: tuple[Any, ...],
 ) -> None:
     try:
+        result_queue.put(("started", None))
         result_queue.put(("ok", func(*args)))
     except Exception as exc:
         result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
@@ -56,6 +58,9 @@ def _run_with_hard_timeout(
     process.start()
 
     try:
+        status, payload = result_queue.get(timeout=SUBPROCESS_START_TIMEOUT)
+        if status != "started":
+            raise ValueError(f"Unexpected subprocess status before start: {status}")
         status, payload = result_queue.get(timeout=timeout)
     except Empty:
         if process.is_alive():

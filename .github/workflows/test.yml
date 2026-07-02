@@ -27,8 +27,8 @@ jobs:
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
+          DEBUG: ${{ vars.DEBUG }}
         run: |
-          export DEBUG=true
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
           echo "Use custom config: "
           cat config/custom.yaml

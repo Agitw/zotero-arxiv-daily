@@ -34,11 +34,13 @@ class BiorxivRetriever(BaseRetriever):
         if len(collection) == 0:
             logger.warning(f"No paper found. API Message: {result['messages']}")
             return []
+        categories = [c.lower() for c in self.retriever_config.category]
+        collection = [c for c in collection if c['category'].lower() in categories]
+        if len(collection) == 0:
+            return []
         all_dates = set(c['date'] for c in collection)
         latest_date = sorted(all_dates)[-1]
         collection = [c for c in collection if c['date'] == latest_date]
-        categories = [c.lower() for c in self.retriever_config.category]
-        collection = [c for c in collection if c['category'] in categories]
         if self.config.executor.debug:
             collection = collection[:10]
         return collection

@@ -20,10 +20,21 @@ llm:
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    category: ["q-bio.BM","q-bio.QM","cs.LG"]
+    include_cross_list: false
+  biorxiv:
+    category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
 
 executor:
   debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  source: ['arxiv','biorxiv']
   rerank_candidate_num: 50
   max_paper_num: 20
+  reranker: llm
+
+reranker:
+  llm:
+    model: deepseek-v4-flash
+    candidate_batch_size: 5
+    max_corpus_papers: 80
+    max_abstract_chars: 1200
