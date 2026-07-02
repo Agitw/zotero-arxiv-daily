@@ -46,7 +46,8 @@ reranker:
     model: null # Chat model for abstract matching. Defaults to llm.generation_kwargs.model. Example: deepseek-v4-flash
     batch_size: 8 # Zotero abstracts compared per LLM request. Smaller values reduce context length. Example: 8
     candidate_batch_size: 5 # Candidate papers scored per LLM request when using executor.reranker=llm. Example: 5
-    max_corpus_papers: 80 # Compare against the newest N Zotero papers after filtering. Set null to compare all.
+    corpus_batch_size: 20 # Zotero papers included per LLM matching request. Example: 20
+    max_corpus_papers: null # Compare against the newest N Zotero papers after filtering. Set null to compare all.
     max_abstract_chars: 1200 # Max characters per abstract included in LLM matching prompts. Example: 1200
     generation_kwargs: {} # Extra chat completion args for matching. Example: {temperature: 0}
 

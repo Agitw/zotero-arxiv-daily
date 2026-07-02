@@ -56,9 +56,14 @@ class LlmReranker(BaseReranker):
             corpus = corpus[: int(max_corpus_papers)]
 
         candidate_batch_size = int(self.llm_config.get("candidate_batch_size") or 5)
+        corpus_batch_size = int(self.llm_config.get("corpus_batch_size") or len(corpus) or 1)
         for start in range(0, len(candidates), candidate_batch_size):
             batch = candidates[start : start + candidate_batch_size]
-            scores = self._score_candidate_batch(batch, corpus)
+            scores = np.zeros(len(batch), dtype=float)
+            for corpus_start in range(0, len(corpus), corpus_batch_size):
+                corpus_chunk = corpus[corpus_start : corpus_start + corpus_batch_size]
+                chunk_scores = self._score_candidate_batch(batch, corpus_chunk)
+                scores = np.maximum(scores, np.array(chunk_scores, dtype=float))
             for paper, score in zip(batch, scores):
                 paper.score = score * 10
         return sorted(candidates, key=lambda paper: paper.score or 0.0, reverse=True)
@@ -160,11 +165,11 @@ class LlmReranker(BaseReranker):
         )
         corpus_profile = self._format_corpus_profile(corpus)
         return (
-            "Score each candidate paper from 0.0 to 1.0 for relevance to the user's Zotero library.\n"
+            "Score each candidate paper from 0.0 to 1.0 for relevance to this chunk of the user's Zotero library.\n"
             "Prioritize overlap in research problem, biological system, method family, and likely usefulness "
             "to the user's recent library papers. Penalize broad field-only overlap.\n"
             "Return exactly this JSON shape and no other text: {\"scores\": [0.0, 0.0]}\n\n"
-            f"User Zotero library, newest first:\n{corpus_profile}\n\n"
+            f"Zotero library chunk, newest first:\n{corpus_profile}\n\n"
             f"Candidate papers to score, in order:\n{candidate_text}"
         )
 

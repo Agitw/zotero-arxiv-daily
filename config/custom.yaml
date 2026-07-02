@@ -28,13 +28,14 @@ source:
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv','biorxiv']
-  rerank_candidate_num: 50
-  max_paper_num: 20
+  rerank_candidate_num: null
+  max_paper_num: 30
   reranker: llm
 
 reranker:
   llm:
     model: deepseek-v4-flash
     candidate_batch_size: 5
-    max_corpus_papers: 80
+    corpus_batch_size: 20
+    max_corpus_papers: null
     max_abstract_chars: 1200
