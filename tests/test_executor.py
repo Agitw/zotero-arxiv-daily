@@ -383,3 +383,92 @@ def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, mo
     assert len(summarized) == 20
     assert summarized[0] == "Paper 49"
     assert summarized[-1] == "Paper 30"
+
+
+def test_run_uses_abstract_fallback_when_reranker_disables_llm_scoring(config, monkeypatch):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.protocol import Paper
+
+    with open_dict(config):
+        config.executor.max_paper_num = 2
+        config.executor.send_empty = False
+
+    candidates = [
+        make_sample_paper(title="Paper 1", abstract="Abstract 1"),
+        make_sample_paper(title="Paper 2", abstract="Abstract 2"),
+    ]
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return candidates
+
+    class LlmUnavailableReranker:
+        llm_scoring_disabled = True
+
+        def rerank(self, papers, corpus):
+            for score, paper in enumerate(papers, start=1):
+                paper.score = float(score)
+            return papers
+
+    monkeypatch.setattr(
+        Paper,
+        "generate_tldr",
+        lambda self, openai_client, llm_params: pytest.fail("TLDR LLM should be skipped"),
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = LlmUnavailableReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert [paper.tldr for paper in candidates] == ["Abstract 1", "Abstract 2"]
+    assert [paper.affiliations for paper in candidates] == [None, None]
+
+
+def test_run_can_write_email_preview_and_skip_smtp(config, tmp_path, monkeypatch):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+
+    preview_path = tmp_path / "preview.html"
+    with open_dict(config):
+        config.executor.max_paper_num = 1
+        config.executor.skip_email = True
+        config.executor.email_preview_path = str(preview_path)
+
+    candidate = make_sample_paper(title="Preview Paper", abstract="Preview abstract")
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return [candidate]
+
+    class StubReranker:
+        def rerank(self, papers, corpus):
+            papers[0].score = 9.0
+            return papers
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.send_email",
+        lambda config, email_content: pytest.fail("SMTP should be skipped"),
+    )
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = StubReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert preview_path.exists()
+    assert "Preview Paper" in preview_path.read_text(encoding="utf-8")

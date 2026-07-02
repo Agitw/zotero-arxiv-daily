@@ -7,6 +7,7 @@ from .protocol import CorpusPaper
 from .zotero_local import fetch_local_zotero_corpus
 import random
 from datetime import datetime
+from pathlib import Path
 from .reranker import get_reranker_cls
 from .construct_email import render_email
 from .utils import send_email
@@ -28,6 +29,16 @@ def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key:
         raise TypeError(f"config.zotero.{config_key} must contain only glob pattern strings.")
 
     return list(patterns)
+
+
+def as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 class Executor:
@@ -129,14 +140,28 @@ class Executor:
             reranked_papers = self.reranker.rerank(all_papers, corpus)
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
-            openai_client = self.get_openai_client()
-            for p in tqdm(reranked_papers):
-                p.generate_tldr(openai_client, self.config.llm)
-                p.generate_affiliations(openai_client, self.config.llm)
+            if getattr(self.reranker, "llm_scoring_disabled", False):
+                logger.warning("Skipping LLM TLDR generation because LLM scoring is unavailable")
+                for p in reranked_papers:
+                    p.tldr = p.abstract
+                    p.affiliations = None
+            else:
+                openai_client = self.get_openai_client()
+                for p in tqdm(reranked_papers):
+                    p.generate_tldr(openai_client, self.config.llm)
+                    p.generate_affiliations(openai_client, self.config.llm)
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return
         logger.info("Sending email...")
         email_content = render_email(reranked_papers)
+        if self.config.executor.get("email_preview_path"):
+            preview_path = Path(str(self.config.executor.email_preview_path))
+            preview_path.parent.mkdir(parents=True, exist_ok=True)
+            preview_path.write_text(email_content, encoding="utf-8")
+            logger.info(f"Wrote email preview to {preview_path}")
+        if as_bool(self.config.executor.get("skip_email")):
+            logger.info("Skipping email send because executor.skip_email is true")
+            return
         send_email(self.config, email_content)
         logger.info("Email sent successfully")

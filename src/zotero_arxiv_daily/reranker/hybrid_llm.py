@@ -1,5 +1,6 @@
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,7 @@ class HybridLlmReranker(BaseReranker):
         self.hybrid_config = config.reranker.get("hybrid_llm", {})
         self.client = None
         self.embedding_client = self._make_embedding_client()
+        self.llm_scoring_disabled = False
 
     @staticmethod
     def corpus_key(paper: CorpusPaper) -> str:
@@ -62,10 +64,24 @@ class HybridLlmReranker(BaseReranker):
         for start in range(0, len(candidates), candidate_batch_size):
             batch = candidates[start : start + candidate_batch_size]
             batch_evidence = []
+            batch_embedding_scores = []
             for candidate_idx in range(start, start + len(batch)):
                 evidence_indices = np.argsort(sim[candidate_idx])[::-1][:evidence_per_candidate]
                 batch_evidence.append([corpus[idx] for idx in evidence_indices])
-            scores = self._score_candidate_batch(batch, batch_evidence)
+                batch_embedding_scores.append(float(np.clip(np.mean(sim[candidate_idx][evidence_indices]), 0.0, 1.0)))
+            if self.llm_scoring_disabled:
+                scores = batch_embedding_scores
+            else:
+                try:
+                    scores = self._score_candidate_batch(batch, batch_evidence)
+                except Exception as exc:
+                    if not self._is_retryable_llm_error(exc):
+                        raise
+                    self.llm_scoring_disabled = True
+                    logger.warning(
+                        f"DeepSeek scoring failed after retries; using embedding scores for this run"
+                    )
+                    scores = batch_embedding_scores
             for paper, score in zip(batch, scores):
                 paper.score = score * 10
         return sorted(candidates, key=lambda paper: paper.score or 0.0, reverse=True)
@@ -137,27 +153,69 @@ class HybridLlmReranker(BaseReranker):
         params = self._chat_params()
         if self.client is None:
             self.client = OpenAI(api_key=self.config.llm.api.key, base_url=self.config.llm.api.base_url)
-        response = self.client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You rank new scientific papers against the most relevant evidence "
-                        "retrieved from a user's Zotero library. Return JSON only."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            **params,
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You rank new scientific papers against the most relevant evidence "
+                    "retrieved from a user's Zotero library. Return JSON only."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        response = self._create_chat_completion_with_retry(messages, params)
         content = response.choices[0].message.content or ""
         return _extract_scores(content, len(candidates))
+
+    def _create_chat_completion_with_retry(self, messages: list[dict], params: dict):
+        attempts = int(self.hybrid_config.get("llm_retry_attempts") or 3)
+        for attempt in range(attempts):
+            try:
+                return self.client.chat.completions.create(messages=messages, **params)
+            except Exception as exc:
+                if attempt == attempts - 1 or not self._is_retryable_llm_error(exc):
+                    raise
+                delay = self._retry_delay_seconds(exc, attempt)
+                logger.warning(
+                    f"DeepSeek scoring failed with retryable error ({exc}); retrying in {delay:.1f}s"
+                )
+                time.sleep(delay)
+        raise RuntimeError("unreachable")
+
+    @staticmethod
+    def _is_retryable_llm_error(exc: Exception) -> bool:
+        if getattr(exc, "status_code", None) in {408, 409, 429, 500, 502, 503, 504}:
+            return True
+        return exc.__class__.__name__ in {"APIConnectionError", "APITimeoutError"}
+
+    def _retry_delay_seconds(self, exc: Exception, attempt: int) -> float:
+        default_delay = float(self.hybrid_config.get("llm_retry_initial_seconds") or 10)
+        max_delay = float(self.hybrid_config.get("llm_retry_max_seconds") or 60)
+        response = getattr(exc, "response", None)
+        retry_after = None
+        if response is not None:
+            try:
+                retry_after = response.headers.get("retry-after")
+            except AttributeError:
+                retry_after = None
+            if retry_after is None:
+                try:
+                    retry_after = response.json().get("retry_after")
+                except Exception:
+                    retry_after = None
+        try:
+            delay = float(retry_after) if retry_after is not None else default_delay * (2 ** attempt)
+        except (TypeError, ValueError):
+            delay = default_delay * (2 ** attempt)
+        return min(delay, max_delay)
 
     def _chat_params(self) -> dict:
         params = _as_plain_dict(self.config.llm.get("generation_kwargs"))
         params.update(_as_plain_dict(self.hybrid_config.get("generation_kwargs")))
         params["model"] = self.hybrid_config.get("model") or params.get("model")
         params.setdefault("temperature", 0)
+        if self.hybrid_config.get("llm_timeout_seconds") is not None:
+            params.setdefault("timeout", float(self.hybrid_config.llm_timeout_seconds))
         return params
 
     def _trim(self, text: str) -> str:

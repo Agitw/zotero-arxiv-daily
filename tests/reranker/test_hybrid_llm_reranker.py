@@ -35,6 +35,40 @@ def _make_chat_client(response: str):
     )
 
 
+class RetryableChatError(Exception):
+    status_code = 502
+
+
+def _make_flaky_chat_client(response: str):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RetryableChatError("temporary upstream failure")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=response))]
+        )
+
+    return SimpleNamespace(
+        calls=calls,
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+
+
+def _make_failing_chat_client():
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        raise RetryableChatError("temporary upstream failure")
+
+    return SimpleNamespace(
+        calls=calls,
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+
+
 def _enable_hybrid(config, cache_path):
     with open_dict(config.executor):
         config.executor.reranker = "hybrid_llm"
@@ -165,3 +199,92 @@ def test_hybrid_llm_reranker_does_not_create_deepseek_client_until_scoring(confi
     )
 
     HybridLlmReranker(_enable_hybrid(config, cache_path))
+
+
+def test_hybrid_llm_reranker_retries_retryable_deepseek_errors(config, tmp_path, monkeypatch):
+    corpus = make_sample_corpus(1)
+    candidates = [make_sample_paper(title="Candidate", abstract="candidate abstract")]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {"key": HybridLlmReranker.corpus_key(corpus[0]), "embedding": [1.0, 0.0]}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    embedding_client = FakeEmbeddingClient({"candidate abstract": [1.0, 0.0]})
+    chat_client = _make_flaky_chat_client('{"scores": [0.9]}')
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: embedding_client,
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.reranker.hybrid_llm.time.sleep", lambda _: None)
+
+    ranked = HybridLlmReranker(_enable_hybrid(config, cache_path)).rerank(candidates, corpus)
+
+    assert ranked[0].score == 9.0
+    assert len(chat_client.calls) == 2
+
+
+def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_retryable_deepseek_errors(config, tmp_path, monkeypatch):
+    corpus = make_sample_corpus(1)
+    candidates = [
+        make_sample_paper(title="Candidate 1", abstract="candidate abstract"),
+        make_sample_paper(title="Candidate 2", abstract="second candidate abstract"),
+    ]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {"key": HybridLlmReranker.corpus_key(corpus[0]), "embedding": [1.0, 0.0]}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    embedding_client = FakeEmbeddingClient(
+        {
+            "candidate abstract": [1.0, 0.0],
+            "second candidate abstract": [1.0, 0.0],
+        }
+    )
+    chat_client = _make_failing_chat_client()
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: embedding_client,
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.reranker.hybrid_llm.time.sleep", lambda _: None)
+
+    hybrid_config = _enable_hybrid(config, cache_path)
+    with open_dict(hybrid_config.reranker.hybrid_llm):
+        hybrid_config.reranker.hybrid_llm.candidate_batch_size = 1
+    reranker = HybridLlmReranker(hybrid_config)
+
+    ranked = reranker.rerank(candidates, corpus)
+
+    assert ranked[0].score == 10.0
+    assert ranked[1].score == 10.0
+    assert reranker.llm_scoring_disabled is True
+    assert len(chat_client.calls) == 3
+
+
+def test_hybrid_llm_reranker_treats_openai_timeouts_as_retryable():
+    timeout_error = type("APITimeoutError", (Exception,), {})("request timed out")
+
+    assert HybridLlmReranker._is_retryable_llm_error(timeout_error) is True
