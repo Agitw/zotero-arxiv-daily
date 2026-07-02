@@ -26,10 +26,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
           DEBUG: ${{ vars.DEBUG }}
         run: |
-          printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
           echo "Use custom config: "
           cat config/custom.yaml
           uv run src/zotero_arxiv_daily/main.py
