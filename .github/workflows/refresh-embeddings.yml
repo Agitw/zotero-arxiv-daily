@@ -1,12 +1,12 @@
-name: Send emails daily
+name: Refresh Zotero embedding cache
 on:
   workflow_dispatch:
   schedule:
-    # 09:00 Asia/Shanghai daily.
-    - cron: '0 1 * * *'
+    # 08:00 Asia/Shanghai every Monday, before the daily email run.
+    - cron: '0 0 * * 1'
 
 jobs:
-  calculate-and-send:
+  refresh-embeddings:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,15 +18,15 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Restore Zotero embedding cache
+      - name: Restore previous Zotero embedding cache
         uses: actions/cache/restore@v4
         with:
           path: .cache/zotero-corpus-embeddings.json
-          key: zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}
+          key: zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Run script
+      - name: Build Zotero embedding cache
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
           ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
@@ -37,6 +37,10 @@ jobs:
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          echo "Use custom config: "
-          cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py
+          uv run src/zotero_arxiv_daily/build_embedding_cache.py
+
+      - name: Save Zotero embedding cache
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/zotero-corpus-embeddings.json
+          key: zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}

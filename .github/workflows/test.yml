@@ -15,6 +15,14 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7.1.4
 
+      - name: Restore Zotero embedding cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/zotero-corpus-embeddings.json
+          key: zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}
+          restore-keys: |
+            zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-
+
 
       - name: Run script
         env:

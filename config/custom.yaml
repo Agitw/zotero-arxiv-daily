@@ -31,18 +31,53 @@ source:
     include_cross_list: false
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
+  openalex:
+    days: 2
+    per_page: 200
+    max_results: 800
+    mailto: null
+    issns:
+      # Computational chemistry / cheminformatics
+      - "1549-9618" # Journal of Chemical Theory and Computation
+      - "1549-9596" # Journal of Chemical Information and Modeling
+      - "0192-8651" # Journal of Computational Chemistry
+      - "1758-2946" # Journal of Cheminformatics
+      - "0021-9606" # Journal of Chemical Physics
+      - "1463-9076" # Physical Chemistry Chemical Physics
+      - "2041-6539" # Chemical Science
+      - "1432-881X" # Theoretical Chemistry Accounts
+      - "2210-271X" # Computational and Theoretical Chemistry
+      # Computational biology / bioinformatics / structure
+      - "1553-7358" # PLOS Computational Biology
+      - "1367-4803" # Bioinformatics
+      - "1467-5463" # Briefings in Bioinformatics
+      - "1471-2105" # BMC Bioinformatics
+      - "1474-760X" # Genome Biology
+      - "0305-1048" # Nucleic Acids Research
+      - "1744-4292" # Molecular Systems Biology
+      - "2001-0370" # Computational and Structural Biotechnology Journal
+      - "0022-2836" # Journal of Molecular Biology
+      - "0969-2126" # Structure
+      - "0006-3495" # Biophysical Journal
+      - "2050-084X" # eLife
+      - "1548-7091" # Nature Methods
+      - "1087-0156" # Nature Biotechnology
 
 executor:
   debug: ${oc.env:DEBUG,null}
-  source: ['arxiv','biorxiv']
+  source: ['arxiv','biorxiv','openalex']
   rerank_candidate_num: null
   max_paper_num: 30
-  reranker: llm
+  reranker: hybrid_llm
 
 reranker:
-  llm:
+  hybrid_llm:
     model: deepseek-v4-flash
+    embedding_model: jinaai/jina-embeddings-v5-text-nano-retrieval
+    cache_path: .cache/zotero-corpus-embeddings.json
+    evidence_per_candidate: 25
     candidate_batch_size: 5
-    corpus_batch_size: 20
-    max_corpus_papers: null
     max_abstract_chars: 1200
+    encode_kwargs:
+      task: retrieval
+      prompt_name: document
