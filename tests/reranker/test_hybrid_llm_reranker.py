@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from omegaconf import open_dict
 
 from tests.canned_responses import make_sample_corpus, make_sample_paper
@@ -43,6 +44,7 @@ def _enable_hybrid(config, cache_path):
             "embedding_provider": "fake",
             "embedding_model": "fake-embedding-model",
             "cache_path": str(cache_path),
+            "cache_build_batch_size": 1,
             "evidence_per_candidate": 2,
             "candidate_batch_size": 5,
             "max_abstract_chars": 1200,
@@ -120,3 +122,46 @@ def test_hybrid_llm_reranker_builds_corpus_embedding_cache_when_missing(config, 
     assert len(cache["entries"]) == 2
     assert corpus[0].abstract in embedding_client.encoded_texts
     assert corpus[1].abstract in embedding_client.encoded_texts
+
+
+def test_hybrid_llm_reranker_extends_partial_corpus_embedding_cache(config, tmp_path, monkeypatch):
+    corpus = sorted(make_sample_corpus(2), key=lambda paper: paper.added_date, reverse=True)
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cached_key = HybridLlmReranker.corpus_key(corpus[0])
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [{"key": cached_key, "embedding": [1.0, 0.0]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    embedding_client = FakeEmbeddingClient({corpus[1].abstract: [0.0, 1.0]})
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: embedding_client,
+    )
+
+    embeddings = HybridLlmReranker(_enable_hybrid(config, cache_path)).prepare_corpus_embeddings(corpus)
+
+    assert embeddings == [[1.0, 0.0], [0.0, 1.0]]
+    assert embedding_client.encoded_texts == [corpus[1].abstract]
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert len(cache["entries"]) == 2
+
+
+def test_hybrid_llm_reranker_does_not_create_deepseek_client_until_scoring(config, tmp_path, monkeypatch):
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: FakeEmbeddingClient({}),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: pytest.fail("DeepSeek client should be lazy"),
+    )
+
+    HybridLlmReranker(_enable_hybrid(config, cache_path))

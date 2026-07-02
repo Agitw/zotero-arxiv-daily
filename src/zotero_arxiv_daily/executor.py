@@ -4,6 +4,7 @@ from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper
+from .zotero_local import fetch_local_zotero_corpus
 import random
 from datetime import datetime
 from .reranker import get_reranker_cls
@@ -38,8 +39,20 @@ class Executor:
             source: get_retriever_cls(source)(config) for source in config.executor.source
         }
         self.reranker = get_reranker_cls(config.executor.reranker)(config)
-        self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+        self.openai_client = None
+
+    def get_openai_client(self):
+        if self.openai_client is None:
+            self.openai_client = OpenAI(api_key=self.config.llm.api.key, base_url=self.config.llm.api.base_url)
+        return self.openai_client
+
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
+        zotero_source = self.config.zotero.get("source", "api")
+        if zotero_source == "auto":
+            zotero_source = "api" if self.config.zotero.get("user_id") and self.config.zotero.get("api_key") else "local"
+        if zotero_source == "local":
+            return fetch_local_zotero_corpus(self.config.zotero.get("local_sqlite_path") or None)
+
         logger.info("Fetching zotero corpus")
         zot = zotero.Zotero(self.config.zotero.user_id, 'user', self.config.zotero.api_key)
         collections = zot.everything(zot.collections())
@@ -116,9 +129,10 @@ class Executor:
             reranked_papers = self.reranker.rerank(all_papers, corpus)
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
+            openai_client = self.get_openai_client()
             for p in tqdm(reranked_papers):
-                p.generate_tldr(self.openai_client, self.config.llm)
-                p.generate_affiliations(self.openai_client, self.config.llm)
+                p.generate_tldr(openai_client, self.config.llm)
+                p.generate_affiliations(openai_client, self.config.llm)
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return

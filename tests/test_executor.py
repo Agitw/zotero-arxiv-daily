@@ -143,6 +143,56 @@ def test_fetch_zotero_corpus_paper_with_zero_collections(config, monkeypatch):
     assert corpus[0].paths == []
 
 
+def test_fetch_zotero_corpus_auto_uses_local_zotero_when_api_credentials_are_missing(config, monkeypatch):
+    from omegaconf import open_dict
+
+    local_corpus = [
+        CorpusPaper(
+            title="Local Paper",
+            abstract="Local abstract.",
+            added_date=datetime(2026, 7, 3, 8, 0, 0),
+            paths=["local/library"],
+        )
+    ]
+    with open_dict(config.zotero):
+        config.zotero.source = "auto"
+        config.zotero.user_id = ""
+        config.zotero.api_key = ""
+        config.zotero.local_sqlite_path = "C:/Users/WJH/Zotero/zotero.sqlite"
+
+    monkeypatch.setattr("zotero_arxiv_daily.executor.fetch_local_zotero_corpus", lambda path: local_corpus)
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.zotero.Zotero",
+        lambda *a, **kw: pytest.fail("API Zotero should not be used without credentials"),
+    )
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+
+    assert executor.fetch_zotero_corpus() == local_corpus
+
+
+def test_fetch_zotero_corpus_auto_prefers_api_when_credentials_are_present(config, monkeypatch):
+    from tests.canned_responses import make_stub_zotero_client
+    from omegaconf import open_dict
+
+    with open_dict(config.zotero):
+        config.zotero.source = "auto"
+        config.zotero.user_id = "123"
+        config.zotero.api_key = "secret"
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.fetch_local_zotero_corpus",
+        lambda path: pytest.fail("Local Zotero should not be used when API credentials exist"),
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: make_stub_zotero_client())
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+
+    assert [paper.title for paper in executor.fetch_zotero_corpus()] == ["Stub Paper 1", "Stub Paper 2"]
+
+
 # ---------------------------------------------------------------------------
 # E2E: Executor.run()
 # ---------------------------------------------------------------------------

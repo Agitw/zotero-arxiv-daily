@@ -1,6 +1,8 @@
 zotero:
-  user_id: ${oc.env:ZOTERO_ID}
-  api_key: ${oc.env:ZOTERO_KEY}
+  source: ${oc.env:ZOTERO_SOURCE,auto}
+  user_id: ${oc.env:ZOTERO_ID,''}
+  api_key: ${oc.env:ZOTERO_KEY,''}
+  local_sqlite_path: ${oc.env:ZOTERO_SQLITE_PATH,''}
   include_path: null # Or set a list of glob patterns, e.g. ["2026/survey/**","2026/reading-group/**"]
   ignore_path:
     - "tmp"
@@ -20,7 +22,7 @@ email:
 llm:
   api:
     key: ${oc.env:OPENAI_API_KEY}
-    base_url: ${oc.env:OPENAI_API_BASE}
+    base_url: ${oc.env:OPENAI_BASE_URL,${oc.env:OPENAI_API_BASE,''}}
   generation_kwargs:
     model: deepseek-v4-flash
   language: Chinese
@@ -73,11 +75,11 @@ executor:
 reranker:
   hybrid_llm:
     model: deepseek-v4-flash
-    embedding_model: jinaai/jina-embeddings-v5-text-nano-retrieval
+    embedding_model: BAAI/bge-small-en-v1.5
     cache_path: .cache/zotero-corpus-embeddings.json
+    cache_build_batch_size: 128
     evidence_per_candidate: 25
     candidate_batch_size: 5
     max_abstract_chars: 1200
     encode_kwargs:
-      task: retrieval
-      prompt_name: document
+      normalize_embeddings: true

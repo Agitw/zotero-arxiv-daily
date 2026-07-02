@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 from openai import OpenAI
 from omegaconf import OmegaConf
 
@@ -19,7 +20,14 @@ class LocalEmbeddingClient:
         self.encode_kwargs = encode_kwargs
 
     def encode(self, texts: list[str]) -> list[list[float]]:
-        return self.encoder.encode(texts, **self.encode_kwargs, show_progress_bar=True).tolist()
+        try:
+            return self.encoder.encode(texts, **self.encode_kwargs, show_progress_bar=True).tolist()
+        except TypeError as exc:
+            if "unexpected keyword argument 'task'" not in str(exc):
+                raise
+            fallback_kwargs = dict(self.encode_kwargs)
+            fallback_kwargs.pop("task", None)
+            return self.encoder.encode(texts, **fallback_kwargs, show_progress_bar=True).tolist()
 
 
 @register_reranker("hybrid_llm")
@@ -27,7 +35,7 @@ class HybridLlmReranker(BaseReranker):
     def __init__(self, config):
         super().__init__(config)
         self.hybrid_config = config.reranker.get("hybrid_llm", {})
-        self.client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+        self.client = None
         self.embedding_client = self._make_embedding_client()
 
     @staticmethod
@@ -78,6 +86,7 @@ class HybridLlmReranker(BaseReranker):
     def _load_or_build_corpus_embeddings(self, corpus: list[CorpusPaper]) -> list[list[float]]:
         cache_path = Path(str(self.hybrid_config.cache_path))
         expected_keys = [self.corpus_key(paper) for paper in corpus]
+        embeddings_by_key = {}
         if cache_path.exists():
             cache = json.loads(cache_path.read_text(encoding="utf-8"))
             if cache.get("model") == self.hybrid_config.embedding_model:
@@ -86,21 +95,38 @@ class HybridLlmReranker(BaseReranker):
                 if all(key in embeddings_by_key for key in expected_keys):
                     return [embeddings_by_key[key] for key in expected_keys]
 
-        embeddings = self.embedding_client.encode([paper.abstract for paper in corpus])
+        missing = [
+            (key, paper)
+            for key, paper in zip(expected_keys, corpus)
+            if key not in embeddings_by_key
+        ]
+        batch_size = int(self.hybrid_config.get("cache_build_batch_size") or 128)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
+        for start in range(0, len(missing), batch_size):
+            batch = missing[start : start + batch_size]
+            logger.info(
+                f"Encoding Zotero corpus embeddings {start + 1}-{start + len(batch)} of {len(missing)} missing papers"
+            )
+            embeddings = self.embedding_client.encode([paper.abstract for _, paper in batch])
+            for (key, _), embedding in zip(batch, embeddings):
+                embeddings_by_key[key] = embedding
+            self._write_corpus_cache(cache_path, expected_keys, embeddings_by_key)
+        return [embeddings_by_key[key] for key in expected_keys]
+
+    def _write_corpus_cache(self, cache_path: Path, expected_keys: list[str], embeddings_by_key: dict[str, list[float]]) -> None:
         cache_path.write_text(
             json.dumps(
                 {
                     "model": self.hybrid_config.embedding_model,
                     "entries": [
-                        {"key": key, "embedding": embedding}
-                        for key, embedding in zip(expected_keys, embeddings)
+                        {"key": key, "embedding": embeddings_by_key[key]}
+                        for key in expected_keys
+                        if key in embeddings_by_key
                     ],
                 }
             ),
             encoding="utf-8",
         )
-        return embeddings
 
     def _score_candidate_batch(
         self,
@@ -109,6 +135,8 @@ class HybridLlmReranker(BaseReranker):
     ) -> list[float]:
         prompt = self._build_prompt(candidates, evidence_by_candidate)
         params = self._chat_params()
+        if self.client is None:
+            self.client = OpenAI(api_key=self.config.llm.api.key, base_url=self.config.llm.api.base_url)
         response = self.client.chat.completions.create(
             messages=[
                 {

@@ -1,6 +1,8 @@
 zotero:
-  user_id: ??? # User ID of your Zotero account.
-  api_key: ??? # An Zotero API key with read access.
+  source: api # Zotero source. Use "api", "local", or "auto".
+  user_id: ??? # User ID of your Zotero account. Required when source is "api".
+  api_key: ??? # An Zotero API key with read access. Required when source is "api".
+  local_sqlite_path: null # Local Zotero SQLite path used when source is "local". Defaults to ~/Zotero/zotero.sqlite.
   include_path: null # A list of glob patterns marking the Zotero collections that should be included. Example: ["2026/survey/**","2026/reading-group/**"]
   ignore_path: null # A list of glob patterns marking the Zotero collections that should be excluded. Example: ["2026/ignore/**","archive/**"]
 
@@ -58,14 +60,14 @@ reranker:
     generation_kwargs: {} # Extra chat completion args for matching. Example: {temperature: 0}
   hybrid_llm:
     model: null # Chat model for final relevance scoring. Defaults to llm.generation_kwargs.model. Example: deepseek-v4-flash
-    embedding_model: jinaai/jina-embeddings-v5-text-nano-retrieval # Embedding model used for all-Zotero recall.
+    embedding_model: BAAI/bge-small-en-v1.5 # Embedding model used for all-Zotero recall.
     cache_path: .cache/zotero-corpus-embeddings.json # Weekly corpus embedding cache path restored by GitHub Actions cache.
+    cache_build_batch_size: 128 # Corpus embeddings to encode before checkpointing cache progress. Example: 128
     evidence_per_candidate: 25 # Zotero evidence papers passed to the LLM per candidate. Example: 25
     candidate_batch_size: 5 # Candidate papers scored per LLM request. Example: 5
     max_abstract_chars: 1200 # Max characters per abstract included in LLM prompts. Example: 1200
     encode_kwargs:
-      task: retrieval
-      prompt_name: document
+      normalize_embeddings: true
 
 executor:
   debug: false # Whether to use debug mode. Example: true
