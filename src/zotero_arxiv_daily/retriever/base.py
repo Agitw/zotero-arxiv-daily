@@ -9,6 +9,8 @@ from loguru import logger
 
 class BaseRetriever(ABC):
     name: str
+    conversion_delay_seconds: float = 1
+
     def __init__(self, config:DictConfig):
         self.config = config
         self.retriever_config = getattr(config.source,self.name)
@@ -33,7 +35,8 @@ class BaseRetriever(ABC):
                 continue
             if paper is not None:
                 papers.append(paper)
-            sleep(1)
+            if self.conversion_delay_seconds > 0:
+                sleep(self.conversion_delay_seconds)
         return papers
 
 registered_retrievers = {}

@@ -49,6 +49,16 @@ source:
       - "2041-6539" # Chemical Science
       - "1432-881X" # Theoretical Chemistry Accounts
       - "2210-271X" # Computational and Theoretical Chemistry
+      - "1759-0876" # WIREs Computational Molecular Science
+      - "1093-3263" # Journal of Molecular Graphics and Modelling
+      - "1868-1743" # Molecular Informatics
+      - "0948-5023" # Journal of Molecular Modeling
+      - "0009-2614" # Chemical Physics Letters
+      - "1089-5639" # The Journal of Physical Chemistry A
+      - "1520-5207" # The Journal of Physical Chemistry B
+      - "1932-7447" # The Journal of Physical Chemistry C
+      - "2374-7943" # ACS Central Science
+      - "2635-098X" # Digital Discovery
       # Computational biology / bioinformatics / structure
       - "1553-7358" # PLOS Computational Biology
       - "1367-4803" # Bioinformatics
@@ -64,6 +74,28 @@ source:
       - "2050-084X" # eLife
       - "1548-7091" # Nature Methods
       - "1087-0156" # Nature Biotechnology
+      - "1476-9271" # Computational Biology and Chemistry
+      - "1471-2164" # BMC Genomics
+      - "2047-217X" # GigaScience
+      - "1088-9051" # Genome Research
+      - "1756-0381" # BioData Mining
+      - "2635-0041" # Bioinformatics Advances
+      - "2631-9268" # NAR Genomics and Bioinformatics
+      - "2160-1836" # G3: Genes, Genomes, Genetics
+      - "2673-7647" # Frontiers in Bioinformatics
+      - "1545-5963" # IEEE/ACM Transactions on Computational Biology and Bioinformatics
+      - "1532-0464" # Journal of Biomedical Informatics
+      - "2052-4463" # Scientific Data
+      - "2662-8457" # Nature Computational Science
+      - "2056-7189" # npj Systems Biology and Applications
+      - "2666-3899" # Patterns
+      - "2405-4712" # Cell Systems
+      - "2666-979X" # Cell Genomics
+      - "0887-3585" # Proteins: Structure, Function, and Bioinformatics
+      - "0961-8368" # Protein Science
+      - "1047-8477" # Journal of Structural Biology
+      - "2059-7983" # Acta Crystallographica Section D: Structural Biology
+      - "2052-2525" # IUCrJ
 
 executor:
   debug: ${oc.env:DEBUG,null}

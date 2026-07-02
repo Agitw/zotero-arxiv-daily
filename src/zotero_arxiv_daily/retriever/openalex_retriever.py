@@ -22,6 +22,7 @@ def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
 @register_retriever("openalex")
 class OpenAlexRetriever(BaseRetriever):
     api_url = "https://api.openalex.org/works"
+    conversion_delay_seconds = 0
 
     def __init__(self, config):
         super().__init__(config)

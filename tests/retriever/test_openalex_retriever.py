@@ -58,3 +58,39 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
     assert papers[0].pdf_url == "https://example.org/paper.pdf"
     assert calls[0][1]["filter"].startswith("from_publication_date:")
     assert "locations.source.issn:1549-9618" in calls[0][1]["filter"]
+
+
+def test_openalex_retriever_does_not_sleep_between_local_conversions(config, monkeypatch):
+    response_body = {
+        "results": [
+            {
+                "id": "https://openalex.org/W123",
+                "title": "A computational biology paper",
+                "authorships": [],
+                "abstract_inverted_index": {"Protein": [0]},
+                "primary_location": {},
+            }
+        ],
+        "meta": {"next_cursor": None},
+    }
+    sleep_calls = []
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.retriever.openalex_retriever.requests.get",
+        lambda *args, **kwargs: SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: response_body,
+        ),
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda seconds: sleep_calls.append(seconds))
+    with open_dict(config.source):
+        config.source.openalex = {
+            "issns": ["1549-9618"],
+            "days": 1,
+            "per_page": 25,
+            "mailto": "test@example.com",
+        }
+
+    OpenAlexRetriever(config).retrieve_papers()
+
+    assert sleep_calls == []
