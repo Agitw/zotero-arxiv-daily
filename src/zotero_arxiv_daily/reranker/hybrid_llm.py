@@ -67,8 +67,14 @@ class HybridLlmReranker(BaseReranker):
             float(np.clip(np.mean(sim[candidate_idx][evidence_indices]), 0.0, 1.0))
             for candidate_idx, evidence_indices in enumerate(evidence_indices_by_candidate)
         ]
-        for paper, score in zip(candidates, embedding_scores):
+        for candidate_idx, (paper, score) in enumerate(zip(candidates, embedding_scores)):
             paper.score = score * 10
+            evidence = [corpus[idx] for idx in evidence_indices_by_candidate[candidate_idx]]
+            paper.matched_zotero_titles = [item.title for item in evidence[:3] if item.title]
+            paper.recommendation_reason = self._build_recommendation_reason(
+                paper.matched_zotero_titles,
+                score,
+            )
 
         llm_candidate_indices = self._llm_candidate_indices(embedding_scores)
         if len(llm_candidate_indices) < len(candidates):
@@ -251,6 +257,19 @@ class HybridLlmReranker(BaseReranker):
         if self.hybrid_config.get("llm_timeout_seconds") is not None:
             params.setdefault("timeout", float(self.hybrid_config.llm_timeout_seconds))
         return params
+
+    @staticmethod
+    def _build_recommendation_reason(matched_titles: list[str] | None, embedding_score: float) -> str:
+        if matched_titles:
+            quoted_titles = "、".join(f"《{title}》" for title in matched_titles[:3])
+            return (
+                f"与 Zotero 文献 {quoted_titles} 的摘要相似度较高；"
+                f"先用全库 embedding 召回相关证据，再结合精排评分推荐。"
+            )
+        return (
+            f"基于 Zotero 全库摘要相似度进行推荐；"
+            f"当前 embedding 相似度为 {embedding_score:.2f}。"
+        )
 
     def _trim(self, text: str) -> str:
         max_chars = int(self.hybrid_config.get("max_abstract_chars") or 1200)

@@ -103,6 +103,32 @@ def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
     assert "每个要点单独一行" in request_text
 
 
+def test_chinese_tldr_prompt_requests_research_reading_structure(llm_params):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="- 一句话结论：这是中文摘要。"))]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    paper = make_sample_paper()
+    llm_params = {
+        **llm_params,
+        "language": "Chinese",
+    }
+
+    paper.generate_tldr(client, llm_params)
+
+    request_text = str(calls[0]["messages"])
+    assert "一句话结论" in request_text
+    assert "关键发现" in request_text
+    assert "为什么值得看" in request_text
+
+
 def test_chinese_tldr_rewrites_english_llm_response(llm_params):
     calls = []
     responses = [

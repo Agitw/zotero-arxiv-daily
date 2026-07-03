@@ -68,6 +68,7 @@ def get_block_html(
     source: str = None,
     venue: str = None,
     published_date: str = None,
+    recommendation_reason: str = None,
 ):
     source_text = venue or source or "Unknown"
     if source and venue and source.lower() not in venue.lower():
@@ -75,6 +76,15 @@ def get_block_html(
     published_date = published_date or "Unknown"
     link_url = pdf_url or paper_url
     link_label = "PDF" if pdf_url else "期刊网页"
+    recommendation_html = ""
+    if recommendation_reason:
+        recommendation_html = f"""
+    <tr>
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>推荐理由:</strong> {recommendation_reason}
+        </td>
+    </tr>
+"""
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -98,6 +108,7 @@ def get_block_html(
             <strong>Date:</strong> {published_date}
         </td>
     </tr>
+    {recommendation_html}
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
             <strong>中文速览:</strong> {tldr}
@@ -121,6 +132,7 @@ def get_block_html(
         affiliations=affiliations,
         source_text=source_text,
         published_date=published_date,
+        recommendation_html=recommendation_html,
     )
 
 def get_stars(score:float):
@@ -173,6 +185,7 @@ def render_email(papers:list[Paper]) -> str:
                 source=p.source,
                 venue=p.venue,
                 published_date=p.published_date,
+                recommendation_reason=p.recommendation_reason,
             )
         )
 

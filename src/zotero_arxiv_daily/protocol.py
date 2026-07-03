@@ -35,6 +35,8 @@ class Paper:
     tldr: Optional[str] = None
     affiliations: Optional[list[str]] = None
     score: Optional[float] = None
+    matched_zotero_titles: Optional[list[str]] = None
+    recommendation_reason: Optional[str] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
@@ -42,13 +44,13 @@ class Paper:
         if use_chinese:
             prompt = (
                 "请根据以下论文信息生成中文速览。\n"
-                "使用 3-4 个简短要点，覆盖：核心问题、方法或模型、关键结果，"
-                "以及它为什么可能对用户的研究有价值。每个要点单独一行，并以“- ”开头。"
+                "使用 3-4 个简短要点，优先覆盖：一句话结论、关键发现、方法或模型、为什么值得看。"
+                "每个要点单独一行，并以“- ”开头。"
                 "不要写成一整段。避免夸张表述，内容要具体对应论文。\n\n"
             )
             system_prompt = (
                 "你是一个擅长快速阅读科研论文的中文助手。请始终用中文回答，"
-                "用 3-4 个简短要点概括论文的核心信息。"
+                "用 3-4 个简短要点概括论文的核心信息，并帮助科研读者快速判断是否值得打开原文。"
             )
         else:
             prompt = (
@@ -107,6 +109,7 @@ class Paper:
                     "content": (
                         "请将以下 TLDR 改写为中文，保留具体科研含义。"
                         "必须使用 3-4 个简短要点，每个要点单独一行，并以“- ”开头。"
+                        "优先覆盖：一句话结论、关键发现、方法或模型、为什么值得看。"
                         "不要写成一整段：\n\n"
                         f"{tldr}"
                     ),

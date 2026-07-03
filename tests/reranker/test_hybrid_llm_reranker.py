@@ -128,6 +128,47 @@ def test_hybrid_llm_reranker_uses_cached_corpus_embeddings_for_deepseek_evidence
     assert "Corpus Paper 1" not in prompt
 
 
+def test_hybrid_llm_reranker_records_zotero_evidence_for_email_reasons(config, tmp_path, monkeypatch):
+    corpus = make_sample_corpus(3)
+    candidates = [
+        make_sample_paper(title="Candidate", abstract="candidate abstract"),
+    ]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {"key": HybridLlmReranker.corpus_key(paper), "embedding": embedding}
+                    for paper, embedding in zip(
+                        corpus,
+                        [[0.0, 1.0], [0.8, 0.2], [1.0, 0.0]],
+                    )
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    embedding_client = FakeEmbeddingClient({"candidate abstract": [1.0, 0.0]})
+    chat_client = _make_chat_client('{"scores": [0.86]}')
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: embedding_client,
+    )
+
+    ranked = HybridLlmReranker(_enable_hybrid(config, cache_path)).rerank(candidates, corpus)
+
+    assert ranked[0].matched_zotero_titles == ["Corpus Paper 2", "Corpus Paper 1"]
+    assert "Corpus Paper 2" in ranked[0].recommendation_reason
+    assert "Zotero" in ranked[0].recommendation_reason
+    assert "摘要相似度" in ranked[0].recommendation_reason
+
+
 def test_hybrid_llm_reranker_builds_corpus_embedding_cache_when_missing(config, tmp_path, monkeypatch):
     corpus = make_sample_corpus(2)
     candidates = [make_sample_paper(title="Candidate", abstract="candidate abstract")]

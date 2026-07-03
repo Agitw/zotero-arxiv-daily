@@ -28,6 +28,20 @@ def test_render_email_includes_publication_venue_and_date():
     assert "2026-07-02" in html
 
 
+def test_render_email_includes_recommendation_reason():
+    paper = make_sample_paper(
+        score=8.4,
+        tldr="- 一句话结论：这篇论文值得快速浏览。",
+        recommendation_reason="与 Zotero 文献《Protein Design Survey》主题接近；综合摘要相似度和精排评分推荐。",
+    )
+
+    html = render_email([paper])
+
+    assert "推荐理由:" in html
+    assert "Protein Design Survey" in html
+    assert "综合摘要相似度" in html
+
+
 def test_render_email_uses_chinese_tldr_label():
     paper = make_sample_paper(score=8.0, tldr="这篇论文提出了新的分子生成方法。")
 
