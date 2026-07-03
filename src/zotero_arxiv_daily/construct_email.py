@@ -59,6 +59,7 @@ def get_block_html(
     tldr: str,
     pdf_url: str,
     affiliations: str = None,
+    paper_url: str = None,
     source: str = None,
     venue: str = None,
     published_date: str = None,
@@ -67,6 +68,8 @@ def get_block_html(
     if source and venue and source.lower() not in venue.lower():
         source_text = f"{source}: {venue}"
     published_date = published_date or "Unknown"
+    link_url = pdf_url or paper_url
+    link_label = "PDF" if pdf_url else "期刊网页"
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -92,13 +95,13 @@ def get_block_html(
     </tr>
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
-            <strong>TLDR:</strong> {tldr}
+            <strong>中文速览:</strong> {tldr}
         </td>
     </tr>
 
     <tr>
         <td style="padding: 8px 0;">
-            <a href="{pdf_url}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #d9534f; padding: 8px 16px; border-radius: 4px;">PDF</a>
+            <a href="{link_url}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #d9534f; padding: 8px 16px; border-radius: 4px;">{link_label}</a>
         </td>
     </tr>
 </table>
@@ -108,7 +111,8 @@ def get_block_html(
         authors=authors,
         rate=rate,
         tldr=tldr,
-        pdf_url=pdf_url,
+        link_url=link_url,
+        link_label=link_label,
         affiliations=affiliations,
         source_text=source_text,
         published_date=published_date,
@@ -160,6 +164,7 @@ def render_email(papers:list[Paper]) -> str:
                 p.tldr,
                 p.pdf_url,
                 affiliations,
+                paper_url=p.url,
                 source=p.source,
                 venue=p.venue,
                 published_date=p.published_date,

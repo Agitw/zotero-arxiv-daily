@@ -28,6 +28,30 @@ def test_render_email_includes_publication_venue_and_date():
     assert "2026-07-02" in html
 
 
+def test_render_email_uses_chinese_tldr_label():
+    paper = make_sample_paper(score=8.0, tldr="这篇论文提出了新的分子生成方法。")
+
+    html = render_email([paper])
+
+    assert "中文速览:" in html
+    assert "TLDR:" not in html
+
+
+def test_render_email_falls_back_to_paper_page_when_pdf_url_is_missing():
+    paper = make_sample_paper(
+        score=8.0,
+        tldr="Summary",
+        url="https://journal.example.org/article/123",
+        pdf_url=None,
+    )
+
+    html = render_email([paper])
+
+    assert 'href="https://journal.example.org/article/123"' in html
+    assert ">期刊网页</a>" in html
+    assert 'href="None"' not in html
+
+
 def test_render_email_empty_list():
     html = render_email([])
     assert "No Papers Today" in html

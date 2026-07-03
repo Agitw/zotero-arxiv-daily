@@ -25,12 +25,27 @@ class Paper:
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
-        prompt = (
-            f"Given the following information of a paper, generate a TLDR in {lang}.\n"
-            "Use 3-4 concise bullet points covering: the core problem, method or model, "
-            "key result, and why it matters to the user's research. Avoid hype and keep "
-            "the summary specific to the paper.\n\n"
-        )
+        if str(lang).lower() in {"chinese", "zh", "zh-cn", "中文"}:
+            prompt = (
+                "请根据以下论文信息生成中文速览。\n"
+                "使用 3-4 个要点，覆盖：核心问题、方法或模型、关键结果，"
+                "以及它为什么可能对用户的研究有价值。避免夸张表述，内容要具体对应论文。\n\n"
+            )
+            system_prompt = (
+                "你是一个擅长快速阅读科研论文的中文助手。请始终用中文回答，"
+                "用清晰、具体的要点概括论文的核心信息。"
+            )
+        else:
+            prompt = (
+                f"Given the following information of a paper, generate a TLDR in {lang}.\n"
+                "Use 3-4 concise bullet points covering: the core problem, method or model, "
+                "key result, and why it matters to the user's research. Avoid hype and keep "
+                "the summary specific to the paper.\n\n"
+            )
+            system_prompt = (
+                "You are an assistant who perfectly summarizes scientific paper, and gives "
+                f"the core idea of the paper to the user. Your answer should be in {lang}."
+            )
         if self.title:
             prompt += f"Title:\n {self.title}\n\n"
 
@@ -54,7 +69,7 @@ class Paper:
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user. Your answer should be in {lang}.",
+                    "content": system_prompt,
                 },
                 {"role": "user", "content": prompt},
             ],

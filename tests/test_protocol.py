@@ -78,6 +78,30 @@ def test_tldr_prompt_requests_richer_scientific_summary(llm_params):
     assert "key result" in request_text
 
 
+def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="中文摘要"))]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    paper = make_sample_paper()
+    llm_params = {
+        **llm_params,
+        "language": "Chinese",
+    }
+    paper.generate_tldr(client, llm_params)
+
+    request_text = str(calls[0]["messages"])
+    assert "中文" in request_text
+    assert "3-4 个要点" in request_text
+
+
 # ---------------------------------------------------------------------------
 # generate_affiliations
 # ---------------------------------------------------------------------------
