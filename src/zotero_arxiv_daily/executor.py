@@ -3,9 +3,10 @@ from pyzotero import zotero
 from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
-from .protocol import CorpusPaper
+from .protocol import CorpusPaper, Paper
 from .zotero_local import fetch_local_zotero_corpus
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 from .reranker import get_reranker_cls
@@ -39,6 +40,35 @@ def as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _paper_text_tokens(paper: Paper) -> set[str]:
+    text = f"{paper.title} {paper.abstract}".lower()
+    return set(re.findall(r"[a-z0-9]+", text))
+
+
+def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def diversify_papers(papers: list[Paper], similarity_threshold: float) -> list[Paper]:
+    selected: list[Paper] = []
+    selected_tokens: list[set[str]] = []
+    delayed: list[Paper] = []
+    for paper in papers:
+        tokens = _paper_text_tokens(paper)
+        is_near_duplicate = any(
+            _jaccard_similarity(tokens, existing_tokens) >= similarity_threshold
+            for existing_tokens in selected_tokens
+        )
+        if is_near_duplicate:
+            delayed.append(paper)
+            continue
+        selected.append(paper)
+        selected_tokens.append(tokens)
+    return selected + delayed
 
 
 class Executor:
@@ -138,6 +168,12 @@ class Executor:
                 logger.info(f"Limited rerank candidates to {len(all_papers)} papers")
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            diversity_threshold = self.config.executor.get("diversity_similarity_threshold")
+            if diversity_threshold is not None:
+                reranked_papers = diversify_papers(reranked_papers, float(diversity_threshold))
+                logger.info(
+                    f"Diversified final paper order with similarity threshold {float(diversity_threshold):.2f}"
+                )
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
             openai_client = self.get_openai_client()

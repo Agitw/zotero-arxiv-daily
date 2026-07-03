@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from omegaconf import OmegaConf
 
-from zotero_arxiv_daily.executor import Executor, normalize_path_patterns
+from zotero_arxiv_daily.executor import Executor, diversify_papers, normalize_path_patterns
 from zotero_arxiv_daily.protocol import CorpusPaper
 
 
@@ -97,6 +97,34 @@ def test_filter_corpus_no_filters_returns_all():
     ]
     filtered = executor.filter_corpus(corpus)
     assert filtered == corpus
+
+
+def test_diversify_papers_prefers_distinct_candidates_before_near_duplicates():
+    from tests.canned_responses import make_sample_paper
+
+    first = make_sample_paper(
+        title="Protein language models for enzyme design",
+        abstract="Protein language models improve enzyme design.",
+        score=9.0,
+    )
+    near_duplicate = make_sample_paper(
+        title="Protein language models for enzyme design",
+        abstract="Protein language models improve enzyme design with similar experiments.",
+        score=8.8,
+    )
+    distinct = make_sample_paper(
+        title="Single-cell atlas of immune aging",
+        abstract="Single-cell transcriptomics reveals immune aging trajectories.",
+        score=8.2,
+    )
+
+    diversified = diversify_papers(
+        [first, near_duplicate, distinct],
+        similarity_threshold=0.5,
+    )
+
+    assert diversified[:2] == [first, distinct]
+    assert diversified[2] == near_duplicate
 
 
 # ---------------------------------------------------------------------------

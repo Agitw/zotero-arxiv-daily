@@ -78,6 +78,7 @@ executor:
   source: ['arxiv','biorxiv','openalex']
   rerank_candidate_num: null
   max_paper_num: 30
+  diversity_similarity_threshold: 0.78
   reranker: hybrid_llm
 
 reranker:
