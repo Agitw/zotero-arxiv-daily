@@ -52,6 +52,11 @@ def get_empty_html():
   """
   return block_template
 
+
+def format_tldr_html(tldr: str | None) -> str:
+    return (tldr or "").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def get_block_html(
     title: str,
     authors: str,
@@ -110,7 +115,7 @@ def get_block_html(
         title=title,
         authors=authors,
         rate=rate,
-        tldr=tldr,
+        tldr=format_tldr_html(tldr),
         link_url=link_url,
         link_label=link_label,
         affiliations=affiliations,

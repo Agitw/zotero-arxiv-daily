@@ -37,6 +37,17 @@ def test_render_email_uses_chinese_tldr_label():
     assert "TLDR:" not in html
 
 
+def test_render_email_preserves_chinese_tldr_bullet_lines():
+    paper = make_sample_paper(
+        score=8.0,
+        tldr="- 核心问题：解释深度学习理论。\n- 方法模型：统一近似、优化和泛化视角。",
+    )
+
+    html = render_email([paper])
+
+    assert "- 核心问题：解释深度学习理论。<br>- 方法模型：统一近似、优化和泛化视角。" in html
+
+
 def test_render_email_falls_back_to_paper_page_when_pdf_url_is_missing():
     paper = make_sample_paper(
         score=8.0,
