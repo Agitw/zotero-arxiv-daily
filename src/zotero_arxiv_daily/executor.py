@@ -3,7 +3,7 @@ from pyzotero import zotero
 from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
-from .protocol import CorpusPaper, chinese_tldr_unavailable_message, is_chinese_language
+from .protocol import CorpusPaper
 from .zotero_local import fetch_local_zotero_corpus
 import random
 from datetime import datetime
@@ -140,16 +140,13 @@ class Executor:
             reranked_papers = self.reranker.rerank(all_papers, corpus)
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
+            openai_client = self.get_openai_client()
             if getattr(self.reranker, "llm_scoring_disabled", False):
-                logger.warning("Skipping LLM TLDR generation because LLM scoring is unavailable")
+                logger.warning("LLM rerank scoring is unavailable; generating TLDR but skipping affiliations")
                 for p in reranked_papers:
-                    if is_chinese_language(self.config.llm.get("language")):
-                        p.tldr = chinese_tldr_unavailable_message()
-                    else:
-                        p.tldr = p.abstract
+                    p.generate_tldr(openai_client, self.config.llm)
                     p.affiliations = None
             else:
-                openai_client = self.get_openai_client()
                 for p in tqdm(reranked_papers):
                     p.generate_tldr(openai_client, self.config.llm)
                     p.generate_affiliations(openai_client, self.config.llm)

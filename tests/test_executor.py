@@ -385,7 +385,7 @@ def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, mo
     assert summarized[-1] == "Paper 30"
 
 
-def test_run_uses_abstract_fallback_when_reranker_disables_llm_scoring(config, monkeypatch):
+def test_run_still_generates_tldr_when_reranker_disables_llm_scoring(config, monkeypatch):
     from omegaconf import open_dict
 
     from tests.canned_responses import make_sample_corpus, make_sample_paper
@@ -413,11 +413,11 @@ def test_run_uses_abstract_fallback_when_reranker_disables_llm_scoring(config, m
                 paper.score = float(score)
             return papers
 
-    monkeypatch.setattr(
-        Paper,
-        "generate_tldr",
-        lambda self, openai_client, llm_params: pytest.fail("TLDR LLM should be skipped"),
-    )
+    def fake_tldr(self, openai_client, llm_params):
+        self.tldr = self.abstract
+        return self.tldr
+
+    monkeypatch.setattr(Paper, "generate_tldr", fake_tldr)
     monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
 
     executor = Executor.__new__(Executor)
@@ -461,11 +461,11 @@ def test_run_uses_chinese_tldr_fallback_when_reranker_disables_llm_scoring(confi
             papers[0].score = 8.0
             return papers
 
-    monkeypatch.setattr(
-        Paper,
-        "generate_tldr",
-        lambda self, openai_client, llm_params: pytest.fail("TLDR LLM should be skipped"),
-    )
+    def fake_tldr(self, openai_client, llm_params):
+        self.tldr = "- 核心问题：预测冷启动蛋白质相互作用。\n- 方法模型：利用多模态知识图谱学习蛋白质表示。"
+        return self.tldr
+
+    monkeypatch.setattr(Paper, "generate_tldr", fake_tldr)
     monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
 
     executor = Executor.__new__(Executor)
@@ -478,7 +478,8 @@ def test_run_uses_chinese_tldr_fallback_when_reranker_disables_llm_scoring(confi
 
     executor.run()
 
-    assert "摘要生成暂不可用" in candidate.tldr
+    assert "核心问题" in candidate.tldr
+    assert "预测冷启动蛋白质相互作用" in candidate.tldr
     assert "Deep learning has outgrown" not in candidate.tldr
     assert candidate.affiliations is None
 
