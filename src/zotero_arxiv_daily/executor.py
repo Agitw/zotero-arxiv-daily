@@ -5,6 +5,7 @@ from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper, Paper
 from .zotero_local import fetch_local_zotero_corpus
+from .feedback import apply_feedback, load_feedback_profile
 import random
 import re
 from datetime import datetime
@@ -168,6 +169,11 @@ class Executor:
                 logger.info(f"Limited rerank candidates to {len(all_papers)} papers")
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            feedback_path = self.config.executor.get("feedback_path")
+            if feedback_path:
+                feedback_profile = load_feedback_profile(feedback_path)
+                reranked_papers = apply_feedback(reranked_papers, feedback_profile)
+                logger.info(f"Applied recommendation feedback profile from {feedback_path}")
             diversity_threshold = self.config.executor.get("diversity_similarity_threshold")
             if diversity_threshold is not None:
                 reranked_papers = diversify_papers(reranked_papers, float(diversity_threshold))

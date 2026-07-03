@@ -78,6 +78,7 @@ executor:
   source: ['arxiv','biorxiv','openalex']
   rerank_candidate_num: null
   max_paper_num: 30
+  feedback_path: ${oc.env:FEEDBACK_PATH,config/feedback.json}
   diversity_similarity_threshold: 0.78
   reranker: hybrid_llm
 
