@@ -59,16 +59,34 @@ class HybridLlmReranker(BaseReranker):
         corpus_embedding_array = np.array(corpus_embeddings)
         sim = self._cosine_similarity(candidate_embeddings, corpus_embedding_array)
         evidence_per_candidate = int(self.hybrid_config.get("evidence_per_candidate") or 20)
+        evidence_indices_by_candidate = [
+            np.argsort(sim[candidate_idx])[::-1][:evidence_per_candidate]
+            for candidate_idx in range(len(candidates))
+        ]
+        embedding_scores = [
+            float(np.clip(np.mean(sim[candidate_idx][evidence_indices]), 0.0, 1.0))
+            for candidate_idx, evidence_indices in enumerate(evidence_indices_by_candidate)
+        ]
+        for paper, score in zip(candidates, embedding_scores):
+            paper.score = score * 10
+
+        llm_candidate_indices = self._llm_candidate_indices(embedding_scores)
+        if len(llm_candidate_indices) < len(candidates):
+            logger.info(
+                f"DeepSeek scoring limited to top {len(llm_candidate_indices)} "
+                f"of {len(candidates)} embedding-ranked candidates"
+            )
 
         candidate_batch_size = int(self.hybrid_config.get("candidate_batch_size") or 5)
-        for start in range(0, len(candidates), candidate_batch_size):
-            batch = candidates[start : start + candidate_batch_size]
+        for start in range(0, len(llm_candidate_indices), candidate_batch_size):
+            batch_indices = llm_candidate_indices[start : start + candidate_batch_size]
+            batch = [candidates[idx] for idx in batch_indices]
             batch_evidence = []
             batch_embedding_scores = []
-            for candidate_idx in range(start, start + len(batch)):
-                evidence_indices = np.argsort(sim[candidate_idx])[::-1][:evidence_per_candidate]
+            for candidate_idx in batch_indices:
+                evidence_indices = evidence_indices_by_candidate[candidate_idx]
                 batch_evidence.append([corpus[idx] for idx in evidence_indices])
-                batch_embedding_scores.append(float(np.clip(np.mean(sim[candidate_idx][evidence_indices]), 0.0, 1.0)))
+                batch_embedding_scores.append(embedding_scores[candidate_idx])
             if self.llm_scoring_disabled:
                 scores = batch_embedding_scores
             else:
@@ -85,6 +103,19 @@ class HybridLlmReranker(BaseReranker):
             for paper, score in zip(batch, scores):
                 paper.score = score * 10
         return sorted(candidates, key=lambda paper: paper.score or 0.0, reverse=True)
+
+    def _llm_candidate_indices(self, embedding_scores: list[float]) -> list[int]:
+        llm_candidate_num = self.hybrid_config.get("llm_candidate_num")
+        if llm_candidate_num is None:
+            return list(range(len(embedding_scores)))
+        limit = max(0, int(llm_candidate_num))
+        if limit >= len(embedding_scores):
+            return list(range(len(embedding_scores)))
+        return sorted(
+            range(len(embedding_scores)),
+            key=lambda idx: embedding_scores[idx],
+            reverse=True,
+        )[:limit]
 
     def get_similarity_score(self, s1: list[str], s2: list[str]) -> np.ndarray:
         s1_embeddings = np.array(self.embedding_client.encode(s1))

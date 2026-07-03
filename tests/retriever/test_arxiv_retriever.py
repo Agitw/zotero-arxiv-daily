@@ -40,6 +40,7 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
             summary="Test abstract",
             pdf_url=f"https://arxiv.org/pdf/{pid}",
             entry_id=f"https://arxiv.org/abs/{pid}",
+            published=entry.get("published", "2026-07-02"),
             source_url=lambda pid=pid: f"https://arxiv.org/e-print/{pid}",
         ))
 
@@ -61,6 +62,8 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     assert len(papers) == len(new_entries)
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
+    assert {p.venue for p in papers} == {"arXiv"}
+    assert all(p.published_date for p in papers)
 
 
 def test_run_with_hard_timeout_returns_value():

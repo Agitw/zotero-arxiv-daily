@@ -12,6 +12,22 @@ def test_render_email_with_papers():
     assert "MIT" in html
 
 
+def test_render_email_includes_publication_venue_and_date():
+    paper = make_sample_paper(
+        source="openalex",
+        venue="Nature Computational Science",
+        published_date="2026-07-02",
+        score=8.2,
+        tldr="A richer summary.",
+    )
+    html = render_email([paper])
+
+    assert "Source:" in html
+    assert "Nature Computational Science" in html
+    assert "Date:" in html
+    assert "2026-07-02" in html
+
+
 def test_render_email_empty_list():
     html = render_email([])
     assert "No Papers Today" in html

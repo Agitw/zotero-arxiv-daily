@@ -87,6 +87,7 @@ class OpenAlexRetriever(BaseRetriever):
         ]
         authors = [author for author in authors if author]
         url = primary_location.get("landing_page_url") or raw_paper.get("doi") or raw_paper.get("id")
+        venue = (primary_location.get("source") or {}).get("display_name")
         return Paper(
             source=self.name,
             title=raw_paper.get("title") or "",
@@ -95,4 +96,6 @@ class OpenAlexRetriever(BaseRetriever):
             url=url,
             pdf_url=primary_location.get("pdf_url"),
             full_text=None,
+            venue=venue,
+            published_date=raw_paper.get("publication_date"),
         )

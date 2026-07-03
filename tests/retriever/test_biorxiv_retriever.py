@@ -92,6 +92,8 @@ def test_biorxiv_convert_to_paper(config):
     assert paper.source == "biorxiv"
     assert "biorxiv.org" in paper.pdf_url
     assert paper.authors == ["Smith, J.", "Doe, A.", "Lee, K."]
+    assert paper.venue == "bioRxiv: bioinformatics"
+    assert paper.published_date == "2026-03-02"
 
 
 def test_biorxiv_requires_category(config):

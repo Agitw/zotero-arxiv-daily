@@ -17,13 +17,20 @@ class Paper:
     url: str
     pdf_url: Optional[str] = None
     full_text: Optional[str] = None
+    venue: Optional[str] = None
+    published_date: Optional[str] = None
     tldr: Optional[str] = None
     affiliations: Optional[list[str]] = None
     score: Optional[float] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
-        prompt = f"Given the following information of a paper, generate a one-sentence TLDR summary in {lang}:\n\n"
+        prompt = (
+            f"Given the following information of a paper, generate a TLDR in {lang}.\n"
+            "Use 3-4 concise bullet points covering: the core problem, method or model, "
+            "key result, and why it matters to the user's research. Avoid hype and keep "
+            "the summary specific to the paper.\n\n"
+        )
         if self.title:
             prompt += f"Title:\n {self.title}\n\n"
 

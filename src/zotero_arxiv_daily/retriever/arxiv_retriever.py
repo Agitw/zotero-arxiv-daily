@@ -179,6 +179,8 @@ class ArxivRetriever(BaseRetriever):
             url=raw_paper.entry_id,
             pdf_url=pdf_url,
             full_text=full_text,
+            venue="arXiv",
+            published_date=raw_paper.published.date().isoformat() if hasattr(raw_paper.published, "date") else str(raw_paper.published),
         )
 
 

@@ -63,6 +63,7 @@ reranker:
     embedding_model: BAAI/bge-small-en-v1.5 # Embedding model used for all-Zotero recall.
     cache_path: .cache/zotero-corpus-embeddings.json # Weekly corpus embedding cache path restored by GitHub Actions cache.
     cache_build_batch_size: 128 # Corpus embeddings to encode before checkpointing cache progress. Example: 128
+    llm_candidate_num: null # Only the top N embedding candidates are sent to the LLM for final scoring. Set null to score all candidates. Example: 60
     evidence_per_candidate: 25 # Zotero evidence papers passed to the LLM per candidate. Example: 25
     candidate_batch_size: 5 # Candidate papers scored per LLM request. Example: 5
     max_abstract_chars: 1200 # Max characters per abstract included in LLM prompts. Example: 1200

@@ -24,6 +24,7 @@ llm:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: ${oc.env:OPENAI_BASE_URL,${oc.env:OPENAI_API_BASE,''}}
   generation_kwargs:
+    max_tokens: 512
     model: deepseek-v4-flash
   language: Chinese
 
@@ -39,51 +40,31 @@ source:
     max_results: 800
     mailto: null
     issns:
-      # Computational chemistry / cheminformatics
+      # CAS 2025 Q1/Q2 computational chemistry / cheminformatics
       - "1549-9618" # Journal of Chemical Theory and Computation
       - "1549-9596" # Journal of Chemical Information and Modeling
-      - "0192-8651" # Journal of Computational Chemistry
       - "1758-2946" # Journal of Cheminformatics
       - "0021-9606" # Journal of Chemical Physics
-      - "1463-9076" # Physical Chemistry Chemical Physics
       - "2041-6539" # Chemical Science
-      - "1432-881X" # Theoretical Chemistry Accounts
-      - "2210-271X" # Computational and Theoretical Chemistry
       - "1759-0876" # WIREs Computational Molecular Science
-      - "1093-3263" # Journal of Molecular Graphics and Modelling
-      - "1868-1743" # Molecular Informatics
-      - "0948-5023" # Journal of Molecular Modeling
-      - "0009-2614" # Chemical Physics Letters
       - "1089-5639" # The Journal of Physical Chemistry A
       - "1520-5207" # The Journal of Physical Chemistry B
-      - "1932-7447" # The Journal of Physical Chemistry C
       - "2374-7943" # ACS Central Science
       - "2635-098X" # Digital Discovery
-      # Computational biology / bioinformatics / structure
+      # CAS 2025 Q1/Q2 computational biology / bioinformatics / structure
       - "1553-7358" # PLOS Computational Biology
-      - "1367-4803" # Bioinformatics
       - "1467-5463" # Briefings in Bioinformatics
-      - "1471-2105" # BMC Bioinformatics
       - "1474-760X" # Genome Biology
       - "0305-1048" # Nucleic Acids Research
       - "1744-4292" # Molecular Systems Biology
-      - "2001-0370" # Computational and Structural Biotechnology Journal
       - "0022-2836" # Journal of Molecular Biology
       - "0969-2126" # Structure
-      - "0006-3495" # Biophysical Journal
       - "2050-084X" # eLife
       - "1548-7091" # Nature Methods
       - "1087-0156" # Nature Biotechnology
-      - "1476-9271" # Computational Biology and Chemistry
       - "1471-2164" # BMC Genomics
       - "2047-217X" # GigaScience
       - "1088-9051" # Genome Research
-      - "1756-0381" # BioData Mining
-      - "2635-0041" # Bioinformatics Advances
-      - "2631-9268" # NAR Genomics and Bioinformatics
-      - "2160-1836" # G3: Genes, Genomes, Genetics
-      - "2673-7647" # Frontiers in Bioinformatics
-      - "1545-5963" # IEEE/ACM Transactions on Computational Biology and Bioinformatics
       - "1532-0464" # Journal of Biomedical Informatics
       - "2052-4463" # Scientific Data
       - "2662-8457" # Nature Computational Science
@@ -91,11 +72,6 @@ source:
       - "2666-3899" # Patterns
       - "2405-4712" # Cell Systems
       - "2666-979X" # Cell Genomics
-      - "0887-3585" # Proteins: Structure, Function, and Bioinformatics
-      - "0961-8368" # Protein Science
-      - "1047-8477" # Journal of Structural Biology
-      - "2059-7983" # Acta Crystallographica Section D: Structural Biology
-      - "2052-2525" # IUCrJ
 
 executor:
   debug: ${oc.env:DEBUG,null}
@@ -110,8 +86,11 @@ reranker:
     embedding_model: BAAI/bge-small-en-v1.5
     cache_path: .cache/zotero-corpus-embeddings.json
     cache_build_batch_size: 128
-    evidence_per_candidate: 25
-    candidate_batch_size: 5
-    max_abstract_chars: 1200
+    llm_candidate_num: 60
+    evidence_per_candidate: 8
+    candidate_batch_size: 10
+    max_abstract_chars: 700
+    generation_kwargs:
+      max_tokens: 128
     encode_kwargs:
       normalize_embeddings: true

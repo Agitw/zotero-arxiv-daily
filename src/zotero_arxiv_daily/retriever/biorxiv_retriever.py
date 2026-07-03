@@ -59,5 +59,10 @@ class BiorxivRetriever(BaseRetriever):
             abstract=abstract,
             url=pdf_url,
             pdf_url=pdf_url,
-            full_text=full_text
+            full_text=full_text,
+            venue=f"{self.server_label()}: {raw_paper.get('category', 'unknown')}",
+            published_date=raw_paper.get("date"),
         )
+
+    def server_label(self) -> str:
+        return {"biorxiv": "bioRxiv", "medrxiv": "medRxiv"}.get(self.server, self.server)

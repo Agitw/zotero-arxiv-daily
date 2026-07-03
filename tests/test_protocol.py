@@ -1,6 +1,7 @@
 """Tests for zotero_arxiv_daily.protocol: Paper.generate_tldr, Paper.generate_affiliations."""
 
 import pytest
+from types import SimpleNamespace
 
 from tests.canned_responses import make_sample_paper, make_stub_openai_client
 
@@ -53,6 +54,28 @@ def test_tldr_truncates_long_prompt(llm_params):
     paper = make_sample_paper(full_text="word " * 10000)
     result = paper.generate_tldr(client, llm_params)
     assert result is not None
+
+
+def test_tldr_prompt_requests_richer_scientific_summary(llm_params):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Detailed TLDR"))]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    paper = make_sample_paper()
+    paper.generate_tldr(client, llm_params)
+
+    request_text = str(calls[0]["messages"])
+    assert "3-4 concise bullet points" in request_text
+    assert "why it matters" in request_text
+    assert "method or model" in request_text
+    assert "key result" in request_text
 
 
 # ---------------------------------------------------------------------------
