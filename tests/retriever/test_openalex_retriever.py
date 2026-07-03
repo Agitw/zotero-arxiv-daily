@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import requests
 from omegaconf import open_dict
 
 from zotero_arxiv_daily.retriever.openalex_retriever import OpenAlexRetriever
@@ -98,3 +99,53 @@ def test_openalex_retriever_does_not_sleep_between_local_conversions(config, mon
     OpenAlexRetriever(config).retrieve_papers()
 
     assert sleep_calls == []
+
+
+def test_openalex_retriever_batches_multiple_issns_in_one_request(config, monkeypatch):
+    calls = []
+
+    def _get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"results": [], "meta": {"next_cursor": None}},
+        )
+
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.requests.get", _get)
+    with open_dict(config.source):
+        config.source.openalex = {
+            "issns": ["1549-9618", "1549-9596", "1758-2946"],
+            "days": 1,
+            "per_page": 25,
+        }
+
+    OpenAlexRetriever(config).retrieve_papers()
+
+    assert len(calls) == 1
+    assert "locations.source.issn:1549-9618|1549-9596|1758-2946" in calls[0][1]["filter"]
+
+
+def test_openalex_retriever_skips_openalex_when_rate_limited(config, monkeypatch):
+    def _get(url, params=None, timeout=None):
+        response = SimpleNamespace(status_code=429, headers={})
+        error = requests.HTTPError("429 Client Error: Too Many Requests")
+        error.response = response
+        return SimpleNamespace(
+            status_code=429,
+            headers={},
+            raise_for_status=lambda: (_ for _ in ()).throw(error),
+        )
+
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.requests.get", _get)
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.sleep", lambda seconds: None)
+    with open_dict(config.source):
+        config.source.openalex = {
+            "issns": ["1549-9618"],
+            "days": 1,
+            "per_page": 25,
+            "request_retry_attempts": 1,
+        }
+
+    papers = OpenAlexRetriever(config).retrieve_papers()
+
+    assert papers == []
