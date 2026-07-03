@@ -102,6 +102,35 @@ def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
     assert "3-4 个要点" in request_text
 
 
+def test_chinese_tldr_rewrites_english_llm_response(llm_params):
+    calls = []
+    responses = [
+        "Deep learning has outgrown any single mathematical explanation.",
+        "该论文系统梳理了深度学习理论从近似、优化到泛化机制的发展脉络。",
+    ]
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=responses.pop(0)))]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    paper = make_sample_paper()
+    llm_params = {
+        **llm_params,
+        "language": "Chinese",
+    }
+
+    result = paper.generate_tldr(client, llm_params)
+
+    assert result == "该论文系统梳理了深度学习理论从近似、优化到泛化机制的发展脉络。"
+    assert len(calls) == 2
+    assert "改写为中文" in str(calls[1]["messages"])
+
+
 # ---------------------------------------------------------------------------
 # generate_affiliations
 # ---------------------------------------------------------------------------

@@ -8,6 +8,19 @@ from loguru import logger
 import json
 RawPaperItem = TypeVar('RawPaperItem')
 
+
+def is_chinese_language(language: str | None) -> bool:
+    return str(language or "").lower() in {"chinese", "zh", "zh-cn", "中文"}
+
+
+def contains_cjk(text: str | None) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def chinese_tldr_unavailable_message() -> str:
+    return "摘要生成暂不可用，请打开论文链接查看原文。"
+
+
 @dataclass
 class Paper:
     source: str
@@ -25,7 +38,8 @@ class Paper:
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
-        if str(lang).lower() in {"chinese", "zh", "zh-cn", "中文"}:
+        use_chinese = is_chinese_language(lang)
+        if use_chinese:
             prompt = (
                 "请根据以下论文信息生成中文速览。\n"
                 "使用 3-4 个要点，覆盖：核心问题、方法或模型、关键结果，"
@@ -76,7 +90,31 @@ class Paper:
             **llm_params.get('generation_kwargs', {})
         )
         tldr = response.choices[0].message.content
+        if use_chinese and not contains_cjk(tldr):
+            tldr = self._rewrite_tldr_in_chinese(openai_client, llm_params, tldr)
         return tldr
+
+    def _rewrite_tldr_in_chinese(self, openai_client: OpenAI, llm_params: dict, tldr: str) -> str:
+        response = openai_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是科研论文速览助手。请只用中文回答，不要保留英文整句。",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "请将以下 TLDR 改写为中文，保留具体科研含义，使用简洁的 3-4 个要点或一段短摘要：\n\n"
+                        f"{tldr}"
+                    ),
+                },
+            ],
+            **llm_params.get('generation_kwargs', {})
+        )
+        rewritten = response.choices[0].message.content or ""
+        if not contains_cjk(rewritten):
+            return chinese_tldr_unavailable_message()
+        return rewritten
     
     def generate_tldr(self, openai_client:OpenAI,llm_params:dict) -> str:
         try:
@@ -85,7 +123,10 @@ class Paper:
             return tldr
         except Exception as e:
             logger.warning(f"Failed to generate tldr of {self.url}: {e}")
-            tldr = self.abstract
+            if is_chinese_language(llm_params.get("language")):
+                tldr = chinese_tldr_unavailable_message()
+            else:
+                tldr = self.abstract
             self.tldr = tldr
             return tldr
 

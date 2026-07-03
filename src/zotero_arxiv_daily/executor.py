@@ -3,7 +3,7 @@ from pyzotero import zotero
 from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
-from .protocol import CorpusPaper
+from .protocol import CorpusPaper, chinese_tldr_unavailable_message, is_chinese_language
 from .zotero_local import fetch_local_zotero_corpus
 import random
 from datetime import datetime
@@ -143,7 +143,10 @@ class Executor:
             if getattr(self.reranker, "llm_scoring_disabled", False):
                 logger.warning("Skipping LLM TLDR generation because LLM scoring is unavailable")
                 for p in reranked_papers:
-                    p.tldr = p.abstract
+                    if is_chinese_language(self.config.llm.get("language")):
+                        p.tldr = chinese_tldr_unavailable_message()
+                    else:
+                        p.tldr = p.abstract
                     p.affiliations = None
             else:
                 openai_client = self.get_openai_client()

@@ -392,6 +392,7 @@ def test_run_uses_abstract_fallback_when_reranker_disables_llm_scoring(config, m
     from zotero_arxiv_daily.protocol import Paper
 
     with open_dict(config):
+        config.llm.language = "English"
         config.executor.max_paper_num = 2
         config.executor.send_empty = False
 
@@ -431,6 +432,55 @@ def test_run_uses_abstract_fallback_when_reranker_disables_llm_scoring(config, m
 
     assert [paper.tldr for paper in candidates] == ["Abstract 1", "Abstract 2"]
     assert [paper.affiliations for paper in candidates] == [None, None]
+
+
+def test_run_uses_chinese_tldr_fallback_when_reranker_disables_llm_scoring(config, monkeypatch):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.protocol import Paper
+
+    with open_dict(config):
+        config.llm.language = "Chinese"
+        config.executor.max_paper_num = 1
+        config.executor.send_empty = False
+
+    candidate = make_sample_paper(
+        title="English Paper",
+        abstract="Deep learning has outgrown any single mathematical explanation.",
+    )
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return [candidate]
+
+    class LlmUnavailableReranker:
+        llm_scoring_disabled = True
+
+        def rerank(self, papers, corpus):
+            papers[0].score = 8.0
+            return papers
+
+    monkeypatch.setattr(
+        Paper,
+        "generate_tldr",
+        lambda self, openai_client, llm_params: pytest.fail("TLDR LLM should be skipped"),
+    )
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = LlmUnavailableReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert "摘要生成暂不可用" in candidate.tldr
+    assert "Deep learning has outgrown" not in candidate.tldr
+    assert candidate.affiliations is None
 
 
 def test_run_can_write_email_preview_and_skip_smtp(config, tmp_path, monkeypatch):
