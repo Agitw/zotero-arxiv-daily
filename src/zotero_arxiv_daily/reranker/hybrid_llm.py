@@ -93,11 +93,11 @@ class HybridLlmReranker(BaseReranker):
                 try:
                     scores = self._score_candidate_batch(batch, batch_evidence)
                 except Exception as exc:
-                    if not self._is_retryable_llm_error(exc):
+                    if not self._is_recoverable_llm_scoring_error(exc):
                         raise
                     self.llm_scoring_disabled = True
                     logger.warning(
-                        f"DeepSeek scoring failed after retries; using embedding scores for this run"
+                        f"DeepSeek scoring failed; using embedding scores for this run: {exc}"
                     )
                     scores = batch_embedding_scores
             for paper, score in zip(batch, scores):
@@ -218,6 +218,9 @@ class HybridLlmReranker(BaseReranker):
         if getattr(exc, "status_code", None) in {408, 409, 429, 500, 502, 503, 504}:
             return True
         return exc.__class__.__name__ in {"APIConnectionError", "APITimeoutError"}
+
+    def _is_recoverable_llm_scoring_error(self, exc: Exception) -> bool:
+        return isinstance(exc, ValueError) or self._is_retryable_llm_error(exc)
 
     def _retry_delay_seconds(self, exc: Exception, attempt: int) -> float:
         default_delay = float(self.hybrid_config.get("llm_retry_initial_seconds") or 10)

@@ -284,6 +284,54 @@ def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_retryable_deep
     assert len(chat_client.calls) == 3
 
 
+def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_malformed_deepseek_json(config, tmp_path, monkeypatch):
+    corpus = make_sample_corpus(1)
+    candidates = [
+        make_sample_paper(title="Strong Candidate", abstract="strong candidate abstract"),
+        make_sample_paper(title="Weak Candidate", abstract="weak candidate abstract"),
+    ]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {"key": HybridLlmReranker.corpus_key(corpus[0]), "embedding": [1.0, 0.0]}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    embedding_client = FakeEmbeddingClient(
+        {
+            "strong candidate abstract": [1.0, 0.0],
+            "weak candidate abstract": [0.0, 1.0],
+        }
+    )
+    chat_client = _make_chat_client('{"scores": [0.2, 0.3]}')
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: embedding_client,
+    )
+    hybrid_config = _enable_hybrid(config, cache_path)
+    with open_dict(hybrid_config.reranker.hybrid_llm):
+        hybrid_config.reranker.hybrid_llm.candidate_batch_size = 1
+    reranker = HybridLlmReranker(hybrid_config)
+
+    ranked = reranker.rerank(candidates, corpus)
+
+    assert [paper.title for paper in ranked] == ["Strong Candidate", "Weak Candidate"]
+    assert candidates[0].score == 10.0
+    assert candidates[1].score == 0.0
+    assert reranker.llm_scoring_disabled is True
+    assert len(chat_client.calls) == 1
+
+
 def test_hybrid_llm_reranker_limits_deepseek_scoring_to_top_embedding_candidates(config, tmp_path, monkeypatch):
     corpus = make_sample_corpus(1)
     candidates = [
