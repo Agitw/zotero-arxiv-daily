@@ -28,7 +28,7 @@ def test_render_email_includes_publication_venue_and_date():
     assert "2026-07-02" in html
 
 
-def test_render_email_includes_recommendation_reason():
+def test_render_email_does_not_show_recommendation_reason_field():
     paper = make_sample_paper(
         score=8.4,
         tldr="- 一句话结论：这篇论文值得快速浏览。",
@@ -37,9 +37,25 @@ def test_render_email_includes_recommendation_reason():
 
     html = render_email([paper])
 
-    assert "推荐理由:" in html
-    assert "Protein Design Survey" in html
-    assert "综合摘要相似度" in html
+    assert "推荐理由:" not in html
+    assert "Protein Design Survey" not in html
+
+
+def test_render_email_includes_feedback_buttons_when_feedback_email_is_provided():
+    paper = make_sample_paper(
+        title="Feedback Paper",
+        url="https://journal.example.org/feedback",
+        score=8.4,
+        tldr="- 一句话结论：这篇论文值得快速浏览。",
+    )
+
+    html = render_email([paper], feedback_email="me@example.com")
+
+    assert "反馈：重要" in html
+    assert "反馈：已读" in html
+    assert "反馈：不感兴趣" in html
+    assert "mailto:me@example.com" in html
+    assert "https%3A//journal.example.org/feedback" in html
 
 
 def test_render_email_uses_chinese_tldr_label():
@@ -60,6 +76,18 @@ def test_render_email_preserves_chinese_tldr_bullet_lines():
     html = render_email([paper])
 
     assert "- 核心问题：解释深度学习理论。<br>- 方法模型：统一近似、优化和泛化视角。" in html
+
+
+def test_render_email_escapes_tldr_html_so_summary_content_is_not_swallowed():
+    paper = make_sample_paper(
+        score=8.0,
+        tldr="- 关键发现：<protein> 标签样文本不应被邮件客户端当成 HTML 吞掉。",
+    )
+
+    html = render_email([paper])
+
+    assert "&lt;protein&gt;" in html
+    assert "<protein>" not in html
 
 
 def test_render_email_falls_back_to_paper_page_when_pdf_url_is_missing():

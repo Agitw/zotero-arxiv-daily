@@ -1,5 +1,7 @@
 from .protocol import Paper
+from html import escape
 import math
+from urllib.parse import quote
 
 
 framework = """
@@ -54,7 +56,45 @@ def get_empty_html():
 
 
 def format_tldr_html(tldr: str | None) -> str:
-    return (tldr or "").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+    escaped = escape(tldr or "")
+    return escaped.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
+def get_feedback_html(title: str, paper_url: str | None, feedback_email: str | None) -> str:
+    if not feedback_email:
+        return ""
+    encoded_title = quote(title or "")
+    encoded_url = quote(paper_url or "")
+    buttons = [
+        ("重要", "important", "#2da44e"),
+        ("已读", "read", "#57606a"),
+        ("不感兴趣", "not_interested", "#cf222e"),
+    ]
+    links = []
+    for label, value, color in buttons:
+        subject = quote(f"[zotero-arxiv-daily feedback] {value}: {title}")
+        body = quote(
+            "{\n"
+            '  "paper_feedback": {\n'
+            f'    "{paper_url or ""}": "{value}"\n'
+            "  }\n"
+            "}\n"
+        )
+        links.append(
+            f'<a href="mailto:{feedback_email}?subject={subject}&body={body}" '
+            'style="display: inline-block; text-decoration: none; font-size: 13px; '
+            f'font-weight: bold; color: #fff; background-color: {color}; '
+            'padding: 6px 10px; border-radius: 4px; margin-right: 6px;">'
+            f"反馈：{label}</a>"
+        )
+    return f"""
+    <tr>
+        <td style="font-size: 13px; color: #333; padding: 8px 0;">
+            {''.join(links)}
+            <span style="display:none;">{encoded_title}{encoded_url}</span>
+        </td>
+    </tr>
+"""
 
 
 def get_block_html(
@@ -68,7 +108,7 @@ def get_block_html(
     source: str = None,
     venue: str = None,
     published_date: str = None,
-    recommendation_reason: str = None,
+    feedback_email: str = None,
 ):
     source_text = venue or source or "Unknown"
     if source and venue and source.lower() not in venue.lower():
@@ -76,15 +116,7 @@ def get_block_html(
     published_date = published_date or "Unknown"
     link_url = pdf_url or paper_url
     link_label = "PDF" if pdf_url else "期刊网页"
-    recommendation_html = ""
-    if recommendation_reason:
-        recommendation_html = f"""
-    <tr>
-        <td style="font-size: 14px; color: #333; padding: 8px 0;">
-            <strong>推荐理由:</strong> {recommendation_reason}
-        </td>
-    </tr>
-"""
+    feedback_html = get_feedback_html(title, paper_url or link_url, feedback_email)
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -108,12 +140,12 @@ def get_block_html(
             <strong>Date:</strong> {published_date}
         </td>
     </tr>
-    {recommendation_html}
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
             <strong>中文速览:</strong> {tldr}
         </td>
     </tr>
+    {feedback_html}
 
     <tr>
         <td style="padding: 8px 0;">
@@ -132,7 +164,7 @@ def get_block_html(
         affiliations=affiliations,
         source_text=source_text,
         published_date=published_date,
-        recommendation_html=recommendation_html,
+        feedback_html=feedback_html,
     )
 
 def get_stars(score:float):
@@ -152,7 +184,7 @@ def get_stars(score:float):
         return '<div class="star-wrapper">'+full_star * full_star_num + half_star * half_star_num + '</div>'
 
 
-def render_email(papers:list[Paper]) -> str:
+def render_email(papers:list[Paper], feedback_email: str | None = None) -> str:
     parts = []
     if len(papers) == 0 :
         return framework.replace('__CONTENT__', get_empty_html())
@@ -185,7 +217,7 @@ def render_email(papers:list[Paper]) -> str:
                 source=p.source,
                 venue=p.venue,
                 published_date=p.published_date,
-                recommendation_reason=p.recommendation_reason,
+                feedback_email=feedback_email,
             )
         )
 

@@ -24,7 +24,7 @@ llm:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: ${oc.env:OPENAI_BASE_URL,${oc.env:OPENAI_API_BASE,''}}
   generation_kwargs:
-    max_tokens: 512
+    max_tokens: 1024
     model: deepseek-v4-flash
   language: Chinese
 
@@ -79,7 +79,6 @@ executor:
   rerank_candidate_num: null
   max_paper_num: 30
   feedback_path: ${oc.env:FEEDBACK_PATH,config/feedback.json}
-  diversity_similarity_threshold: 0.78
   reranker: hybrid_llm
 
 reranker:
