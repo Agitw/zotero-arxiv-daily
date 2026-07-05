@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+import requests
 
 from .protocol import Paper
 
@@ -33,6 +34,46 @@ def load_feedback_profile(path: str | Path | None) -> FeedbackProfile:
         preferred_venues=_string_list(data.get("preferred_venues")),
         blocked_venues=_string_list(data.get("blocked_venues")),
     )
+
+
+def fetch_github_issue_feedback(
+    repository: str | None,
+    token: str | None,
+    label: str = "paper-feedback",
+) -> FeedbackProfile:
+    if not repository or not token:
+        return FeedbackProfile()
+    response = requests.get(
+        f"https://api.github.com/repos/{repository}/issues",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "zotero-arxiv-daily",
+        },
+        params={
+            "state": "open",
+            "labels": label,
+            "per_page": 100,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    merged = FeedbackProfile()
+    for issue in response.json():
+        title = str(issue.get("title") or "")
+        if "paper-feedback" not in title.lower():
+            continue
+        try:
+            profile = _coerce_profile(json.loads(issue.get("body") or "{}"))
+        except json.JSONDecodeError:
+            logger.warning(f"Skipping malformed feedback issue: {title}")
+            continue
+        merged.paper_feedback.update(profile.paper_feedback)
+        merged.positive_keywords.extend(profile.positive_keywords)
+        merged.negative_keywords.extend(profile.negative_keywords)
+        merged.preferred_venues.extend(profile.preferred_venues)
+        merged.blocked_venues.extend(profile.blocked_venues)
+    return merged
 
 
 def apply_feedback(papers: list[Paper], feedback: FeedbackProfile | dict[str, Any] | None) -> list[Paper]:

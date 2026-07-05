@@ -5,6 +5,10 @@ on:
     # 09:00 Asia/Shanghai daily.
     - cron: '0 1 * * *'
 
+permissions:
+  contents: read
+  issues: read
+
 jobs:
   calculate-and-send:
     runs-on: ubuntu-latest
@@ -41,6 +45,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          FEEDBACK_ENDPOINT: ${{ secrets.FEEDBACK_ENDPOINT }}
+          FEEDBACK_SECRET: ${{ secrets.FEEDBACK_SECRET }}
         run: |
           echo "Use custom config: "
           cat config/custom.yaml

@@ -2,6 +2,10 @@ name: Test
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: read
+
 jobs:
   calculate-and-send:
     runs-on: ubuntu-latest
@@ -43,6 +47,9 @@ jobs:
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           DEBUG: ${{ vars.DEBUG }}
+          GITHUB_TOKEN: ${{ github.token }}
+          FEEDBACK_ENDPOINT: ${{ secrets.FEEDBACK_ENDPOINT }}
+          FEEDBACK_SECRET: ${{ secrets.FEEDBACK_SECRET }}
         run: |
           echo "Use custom config: "
           cat config/custom.yaml

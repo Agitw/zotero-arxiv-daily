@@ -41,7 +41,7 @@ def test_render_email_does_not_show_recommendation_reason_field():
     assert "Protein Design Survey" not in html
 
 
-def test_render_email_includes_feedback_buttons_when_feedback_email_is_provided():
+def test_render_email_includes_signed_feedback_endpoint_buttons_when_configured():
     paper = make_sample_paper(
         title="Feedback Paper",
         url="https://journal.example.org/feedback",
@@ -49,13 +49,20 @@ def test_render_email_includes_feedback_buttons_when_feedback_email_is_provided(
         tldr="- 一句话结论：这篇论文值得快速浏览。",
     )
 
-    html = render_email([paper], feedback_email="me@example.com")
+    html = render_email(
+        [paper],
+        feedback_endpoint="https://feedback.example.workers.dev",
+        feedback_secret="secret-token",
+    )
 
     assert "反馈：重要" in html
     assert "反馈：已读" in html
     assert "反馈：不感兴趣" in html
-    assert "mailto:me@example.com" in html
-    assert "https%3A//journal.example.org/feedback" in html
+    assert "mailto:" not in html
+    assert "https://feedback.example.workers.dev?" in html
+    assert "paper_url=https%3A%2F%2Fjournal.example.org%2Ffeedback" in html
+    assert "signature=" in html
+    assert "secret-token" not in html
 
 
 def test_render_email_uses_chinese_tldr_label():

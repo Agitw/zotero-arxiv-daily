@@ -5,7 +5,7 @@ from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper
 from .zotero_local import fetch_local_zotero_corpus
-from .feedback import apply_feedback, load_feedback_profile
+from .feedback import FeedbackProfile, apply_feedback, fetch_github_issue_feedback, load_feedback_profile
 import random
 from datetime import datetime
 from pathlib import Path
@@ -140,10 +140,16 @@ class Executor:
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
             feedback_path = self.config.executor.get("feedback_path")
+            feedback_profile = FeedbackProfile()
             if feedback_path:
                 feedback_profile = load_feedback_profile(feedback_path)
-                reranked_papers = apply_feedback(reranked_papers, feedback_profile)
-                logger.info(f"Applied recommendation feedback profile from {feedback_path}")
+                logger.info(f"Loaded recommendation feedback profile from {feedback_path}")
+            github_feedback = fetch_github_issue_feedback(
+                self.config.executor.get("feedback_github_repository"),
+                self.config.executor.get("feedback_github_token"),
+            )
+            feedback_profile = self._merge_feedback_profiles(feedback_profile, github_feedback)
+            reranked_papers = apply_feedback(reranked_papers, feedback_profile)
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
             openai_client = self.get_openai_client()
@@ -160,7 +166,11 @@ class Executor:
             logger.info("No new papers found. No email will be sent.")
             return
         logger.info("Sending email...")
-        email_content = render_email(reranked_papers, feedback_email=str(self.config.email.receiver))
+        email_content = render_email(
+            reranked_papers,
+            feedback_endpoint=self.config.executor.get("feedback_endpoint"),
+            feedback_secret=self.config.executor.get("feedback_secret"),
+        )
         if self.config.executor.get("email_preview_path"):
             preview_path = Path(str(self.config.executor.email_preview_path))
             preview_path.parent.mkdir(parents=True, exist_ok=True)
@@ -171,3 +181,12 @@ class Executor:
             return
         send_email(self.config, email_content)
         logger.info("Email sent successfully")
+
+    def _merge_feedback_profiles(self, base: FeedbackProfile, extra: FeedbackProfile) -> FeedbackProfile:
+        return FeedbackProfile(
+            paper_feedback={**base.paper_feedback, **extra.paper_feedback},
+            positive_keywords=[*base.positive_keywords, *extra.positive_keywords],
+            negative_keywords=[*base.negative_keywords, *extra.negative_keywords],
+            preferred_venues=[*base.preferred_venues, *extra.preferred_venues],
+            blocked_venues=[*base.blocked_venues, *extra.blocked_venues],
+        )

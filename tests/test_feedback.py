@@ -3,7 +3,11 @@
 import json
 
 from tests.canned_responses import make_sample_paper
-from zotero_arxiv_daily.feedback import apply_feedback, load_feedback_profile
+from zotero_arxiv_daily.feedback import (
+    apply_feedback,
+    fetch_github_issue_feedback,
+    load_feedback_profile,
+)
 
 
 def test_load_feedback_profile_returns_empty_profile_when_path_is_missing(tmp_path):
@@ -84,3 +88,39 @@ def test_load_feedback_profile_reads_json_file(tmp_path):
 
     assert profile.positive_keywords == ["protein design"]
     assert profile.paper_feedback == {"https://example.org/a": "read"}
+
+
+def test_fetch_github_issue_feedback_reads_json_payloads(monkeypatch):
+    requests_seen = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {
+                    "title": "[paper-feedback] not_interested",
+                    "body": '{"paper_feedback": {"https://example.org/a": "not_interested"}}',
+                },
+                {
+                    "title": "Unrelated",
+                    "body": '{"paper_feedback": {"https://example.org/b": "important"}}',
+                },
+            ]
+
+    def fake_get(url, headers, params, timeout):
+        requests_seen.append((url, headers, params, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr("zotero_arxiv_daily.feedback.requests.get", fake_get)
+
+    profile = fetch_github_issue_feedback(
+        repository="Agitw/zotero-arxiv-daily",
+        token="github-token",
+    )
+
+    assert profile.paper_feedback == {"https://example.org/a": "not_interested"}
+    assert requests_seen[0][0] == "https://api.github.com/repos/Agitw/zotero-arxiv-daily/issues"
+    assert requests_seen[0][1]["Authorization"] == "Bearer github-token"
+    assert requests_seen[0][2]["labels"] == "paper-feedback"

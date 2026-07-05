@@ -454,6 +454,72 @@ def test_run_applies_feedback_profile_before_summarizing_top_papers(config, tmp_
     assert "负反馈" in disliked.recommendation_reason
 
 
+def test_run_merges_github_issue_feedback_before_summarizing_top_papers(config, monkeypatch):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.feedback import FeedbackProfile
+    from zotero_arxiv_daily.protocol import Paper
+
+    with open_dict(config):
+        config.executor.max_paper_num = 2
+        config.executor.send_empty = False
+        config.executor.feedback_github_repository = "Agitw/zotero-arxiv-daily"
+        config.executor.feedback_github_token = "github-token"
+
+    disliked = make_sample_paper(
+        title="Clinical trial dashboard",
+        url="https://journal.example.org/disliked",
+        score=None,
+    )
+    preferred = make_sample_paper(
+        title="Protein design model",
+        url="https://journal.example.org/preferred",
+        score=None,
+    )
+    summarized = []
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return [disliked, preferred]
+
+    class StubReranker:
+        def rerank(self, papers, corpus):
+            disliked.score = 9.0
+            preferred.score = 7.0
+            return [disliked, preferred]
+
+    def fake_tldr(self, openai_client, llm_params):
+        summarized.append(self.title)
+        self.tldr = "summary"
+        return self.tldr
+
+    monkeypatch.setattr(Paper, "generate_tldr", fake_tldr)
+    monkeypatch.setattr(Paper, "generate_affiliations", lambda self, openai_client, llm_params: [])
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, email_content: None)
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.fetch_github_issue_feedback",
+        lambda repository, token: FeedbackProfile(
+            paper_feedback={
+                "https://journal.example.org/disliked": "not_interested",
+                "https://journal.example.org/preferred": "important",
+            }
+        ),
+    )
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = StubReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert summarized == ["Protein design model", "Clinical trial dashboard"]
+
+
 def test_run_still_generates_tldr_when_reranker_disables_llm_scoring(config, monkeypatch):
     from omegaconf import open_dict
 

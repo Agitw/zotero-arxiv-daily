@@ -1,7 +1,9 @@
 from .protocol import Paper
+import hashlib
+import hmac
 from html import escape
 import math
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 
 framework = """
@@ -60,11 +62,14 @@ def format_tldr_html(tldr: str | None) -> str:
     return escaped.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
-def get_feedback_html(title: str, paper_url: str | None, feedback_email: str | None) -> str:
-    if not feedback_email:
+def get_feedback_html(
+    title: str,
+    paper_url: str | None,
+    feedback_endpoint: str | None,
+    feedback_secret: str | None,
+) -> str:
+    if not feedback_endpoint or not feedback_secret:
         return ""
-    encoded_title = quote(title or "")
-    encoded_url = quote(paper_url or "")
     buttons = [
         ("重要", "important", "#2da44e"),
         ("已读", "read", "#57606a"),
@@ -72,16 +77,9 @@ def get_feedback_html(title: str, paper_url: str | None, feedback_email: str | N
     ]
     links = []
     for label, value, color in buttons:
-        subject = quote(f"[zotero-arxiv-daily feedback] {value}: {title}")
-        body = quote(
-            "{\n"
-            '  "paper_feedback": {\n'
-            f'    "{paper_url or ""}": "{value}"\n'
-            "  }\n"
-            "}\n"
-        )
+        href = build_feedback_url(feedback_endpoint, feedback_secret, paper_url or "", title or "", value)
         links.append(
-            f'<a href="mailto:{feedback_email}?subject={subject}&body={body}" '
+            f'<a href="{href}" '
             'style="display: inline-block; text-decoration: none; font-size: 13px; '
             f'font-weight: bold; color: #fff; background-color: {color}; '
             'padding: 6px 10px; border-radius: 4px; margin-right: 6px;">'
@@ -91,10 +89,29 @@ def get_feedback_html(title: str, paper_url: str | None, feedback_email: str | N
     <tr>
         <td style="font-size: 13px; color: #333; padding: 8px 0;">
             {''.join(links)}
-            <span style="display:none;">{encoded_title}{encoded_url}</span>
         </td>
     </tr>
 """
+
+
+def build_feedback_url(
+    endpoint: str,
+    secret: str,
+    paper_url: str,
+    title: str,
+    action: str,
+) -> str:
+    payload = f"{action}\n{paper_url}\n{title}"
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    query = urlencode(
+        {
+            "action": action,
+            "paper_url": paper_url,
+            "title": title,
+            "signature": signature,
+        }
+    )
+    return f"{endpoint.rstrip('/')}?{query}"
 
 
 def get_block_html(
@@ -108,7 +125,8 @@ def get_block_html(
     source: str = None,
     venue: str = None,
     published_date: str = None,
-    feedback_email: str = None,
+    feedback_endpoint: str = None,
+    feedback_secret: str = None,
 ):
     source_text = venue or source or "Unknown"
     if source and venue and source.lower() not in venue.lower():
@@ -116,7 +134,7 @@ def get_block_html(
     published_date = published_date or "Unknown"
     link_url = pdf_url or paper_url
     link_label = "PDF" if pdf_url else "期刊网页"
-    feedback_html = get_feedback_html(title, paper_url or link_url, feedback_email)
+    feedback_html = get_feedback_html(title, paper_url or link_url, feedback_endpoint, feedback_secret)
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -184,7 +202,11 @@ def get_stars(score:float):
         return '<div class="star-wrapper">'+full_star * full_star_num + half_star * half_star_num + '</div>'
 
 
-def render_email(papers:list[Paper], feedback_email: str | None = None) -> str:
+def render_email(
+    papers:list[Paper],
+    feedback_endpoint: str | None = None,
+    feedback_secret: str | None = None,
+) -> str:
     parts = []
     if len(papers) == 0 :
         return framework.replace('__CONTENT__', get_empty_html())
@@ -217,7 +239,8 @@ def render_email(papers:list[Paper], feedback_email: str | None = None) -> str:
                 source=p.source,
                 venue=p.venue,
                 published_date=p.published_date,
-                feedback_email=feedback_email,
+                feedback_endpoint=feedback_endpoint,
+                feedback_secret=feedback_secret,
             )
         )
 

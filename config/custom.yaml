@@ -79,6 +79,10 @@ executor:
   rerank_candidate_num: null
   max_paper_num: 30
   feedback_path: ${oc.env:FEEDBACK_PATH,config/feedback.json}
+  feedback_endpoint: ${oc.env:FEEDBACK_ENDPOINT,''}
+  feedback_secret: ${oc.env:FEEDBACK_SECRET,''}
+  feedback_github_repository: ${oc.env:GITHUB_REPOSITORY,''}
+  feedback_github_token: ${oc.env:GITHUB_TOKEN,''}
   reranker: hybrid_llm
 
 reranker:
