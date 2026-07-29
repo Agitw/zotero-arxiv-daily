@@ -10,6 +10,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from .reranker import get_reranker_cls
+from .reranker.base import apply_venue_weights
 from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
@@ -139,6 +140,10 @@ class Executor:
                 logger.info(f"Limited rerank candidates to {len(all_papers)} papers")
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            reranked_papers = apply_venue_weights(
+                reranked_papers,
+                self.config.reranker.get("venue_weights"),
+            )
             feedback_path = self.config.executor.get("feedback_path")
             feedback_profile = FeedbackProfile()
             if feedback_path:
