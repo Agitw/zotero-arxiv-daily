@@ -4,12 +4,15 @@ from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper
+from .recommendation_funnel import RecommendationFunnel
+from .recommendation_history import RecommendationHistory
 from .zotero_local import fetch_local_zotero_corpus
 from .feedback import FeedbackProfile, apply_feedback, fetch_github_issue_feedback, load_feedback_profile
 import random
 from datetime import datetime
 from pathlib import Path
 from .reranker import get_reranker_cls
+from .reranker.base import apply_venue_weights
 from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
@@ -116,9 +119,18 @@ class Executor:
 
     
     def run(self):
+        funnel = RecommendationFunnel(self.config.executor.get("recommendation_funnel_path"))
+        try:
+            return self._run_pipeline(funnel)
+        except Exception as exc:
+            funnel.record_failure(exc)
+            raise
+
+    def _run_pipeline(self, funnel: RecommendationFunnel):
         corpus = self.fetch_zotero_corpus()
         corpus = self.filter_corpus(corpus)
         if len(corpus) == 0:
+            funnel.observe("final", [])
             logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
             return
         all_papers = []
@@ -131,14 +143,40 @@ class Executor:
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
+        funnel.observe("retrieved", all_papers)
+        history_path = self.config.executor.get("recommendation_history_path")
+        recommendation_history = None
+        if history_path:
+            recommendation_history = RecommendationHistory(
+                history_path,
+                retention_days=int(self.config.executor.get("recommendation_history_days") or 60),
+            )
+            retrieved_count = len(all_papers)
+            all_papers = recommendation_history.filter_unseen(all_papers)
+            logger.info(
+                f"Recommendation history removed {retrieved_count - len(all_papers)} already-sent papers; "
+                f"{len(all_papers)} unseen papers remain"
+            )
+        funnel.observe("unseen", all_papers)
         reranked_papers = []
         if len(all_papers) > 0:
             rerank_candidate_num = self.config.executor.get("rerank_candidate_num")
             if rerank_candidate_num is not None:
                 all_papers = all_papers[:rerank_candidate_num]
                 logger.info(f"Limited rerank candidates to {len(all_papers)} papers")
+            funnel.observe("rerank_candidates", all_papers)
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            funnel.observe("semantic_ranked", reranked_papers)
+            funnel.observe(
+                "llm_scored",
+                [paper for paper in reranked_papers if paper.llm_selection_reason],
+            )
+            reranked_papers = apply_venue_weights(
+                reranked_papers,
+                self.config.reranker.get("venue_weights"),
+            )
+            funnel.observe("weighted_ranked", reranked_papers)
             feedback_path = self.config.executor.get("feedback_path")
             feedback_profile = FeedbackProfile()
             if feedback_path:
@@ -150,7 +188,9 @@ class Executor:
             )
             feedback_profile = self._merge_feedback_profiles(feedback_profile, github_feedback)
             reranked_papers = apply_feedback(reranked_papers, feedback_profile)
+            funnel.observe("feedback_ranked", reranked_papers)
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
+            funnel.observe("final", reranked_papers)
             logger.info("Generating TLDR and affiliations...")
             openai_client = self.get_openai_client()
             if getattr(self.reranker, "llm_scoring_disabled", False):
@@ -163,8 +203,11 @@ class Executor:
                     p.generate_tldr(openai_client, self.config.llm)
                     p.generate_affiliations(openai_client, self.config.llm)
         elif not self.config.executor.send_empty:
+            funnel.observe("final", [])
             logger.info("No new papers found. No email will be sent.")
             return
+        else:
+            funnel.observe("final", [])
         logger.info("Sending email...")
         email_content = render_email(
             reranked_papers,
@@ -180,6 +223,9 @@ class Executor:
             logger.info("Skipping email send because executor.skip_email is true")
             return
         send_email(self.config, email_content)
+        if recommendation_history is not None:
+            recommendation_history.record(reranked_papers)
+        funnel.observe("emailed", reranked_papers)
         logger.info("Email sent successfully")
 
     def _merge_feedback_profiles(self, base: FeedbackProfile, extra: FeedbackProfile) -> FeedbackProfile:

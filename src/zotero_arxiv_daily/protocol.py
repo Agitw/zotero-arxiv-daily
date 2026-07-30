@@ -37,6 +37,10 @@ class Paper:
     score: Optional[float] = None
     matched_zotero_titles: Optional[list[str]] = None
     recommendation_reason: Optional[str] = None
+    doi: Optional[str] = None
+    external_id: Optional[str] = None
+    venue_issns: Optional[list[str]] = None
+    llm_selection_reason: Optional[str] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')

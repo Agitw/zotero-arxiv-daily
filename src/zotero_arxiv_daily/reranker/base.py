@@ -1,8 +1,60 @@
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from omegaconf import DictConfig
 from ..protocol import Paper, CorpusPaper
 import numpy as np
 from typing import Type
+
+
+def get_venue_weight(
+    paper: Paper,
+    venue_weights: Mapping[str, float] | None,
+) -> float:
+    if not venue_weights:
+        return 1.0
+    normalized_weights = {
+        str(key).strip().casefold(): float(weight)
+        for key, weight in venue_weights.items()
+    }
+    issn_weights = [
+        normalized_weights[issn.strip().casefold()]
+        for issn in paper.venue_issns or []
+        if issn.strip().casefold() in normalized_weights
+    ]
+    if issn_weights:
+        return max(issn_weights)
+    venue = (paper.venue or "").strip().casefold()
+    return normalized_weights.get(venue, 1.0)
+
+
+def apply_venue_weights(
+    papers: list[Paper],
+    venue_weights: Mapping[str, float] | None,
+) -> list[Paper]:
+    """Multiply relevance scores by configured journal weights and re-sort."""
+    if not venue_weights:
+        return papers
+
+    adjusted = False
+    for paper in papers:
+        venue = (paper.venue or "").strip()
+        weight = get_venue_weight(paper, venue_weights)
+        if weight == 1.0:
+            continue
+        paper.score = (paper.score or 0.0) * weight
+        reason = f"高影响力期刊权重：{venue} ×{weight:.2f}"
+        paper.recommendation_reason = (
+            f"{paper.recommendation_reason}；{reason}"
+            if paper.recommendation_reason
+            else reason
+        )
+        adjusted = True
+
+    if not adjusted:
+        return papers
+    return sorted(papers, key=lambda paper: paper.score or 0.0, reverse=True)
+
+
 class BaseReranker(ABC):
     def __init__(self, config:DictConfig):
         self.config = config

@@ -44,6 +44,8 @@ def _base_config():
                 "executor.reranker=api",
                 "executor.debug=false",
                 "executor.send_empty=false",
+                "executor.recommendation_history_path=null",
+                "executor.recommendation_funnel_path=null",
             ],
         )
     return cfg

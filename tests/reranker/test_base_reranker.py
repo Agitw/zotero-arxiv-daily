@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from zotero_arxiv_daily.reranker.base import BaseReranker, get_reranker_cls
+from zotero_arxiv_daily.reranker.base import BaseReranker, apply_venue_weights, get_reranker_cls
 from tests.canned_responses import make_sample_paper, make_sample_corpus
 
 
@@ -68,3 +68,41 @@ def test_rerank_single_candidate_single_corpus():
 def test_get_reranker_cls_unknown():
     with pytest.raises(ValueError, match="not found"):
         get_reranker_cls("nonexistent_reranker_xyz")
+
+
+def test_apply_venue_weights_boosts_high_impact_journals_and_resorts():
+    ordinary = make_sample_paper(title="Ordinary", venue="Ordinary Journal", score=5.0)
+    high_impact = make_sample_paper(
+        title="High impact",
+        venue="Nature Machine Intelligence",
+        score=4.0,
+    )
+
+    ranked = apply_venue_weights(
+        [ordinary, high_impact],
+        {"Nature Machine Intelligence": 1.5},
+    )
+
+    assert ranked == [high_impact, ordinary]
+    assert high_impact.score == 6.0
+    assert ordinary.score == 5.0
+    assert "Nature Machine Intelligence ×1.50" in high_impact.recommendation_reason
+
+
+def test_apply_venue_weights_prefers_issn_over_journal_name_fallback():
+    paper = make_sample_paper(
+        venue="Publisher display name",
+        venue_issns=["2522-5839"],
+        score=4.0,
+    )
+
+    apply_venue_weights(
+        [paper],
+        {
+            "2522-5839": 1.5,
+            "Publisher display name": 1.1,
+        },
+    )
+
+    assert paper.score == 6.0
+    assert "Publisher display name ×1.50" in paper.recommendation_reason

@@ -28,7 +28,11 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
                 "primary_location": {
                     "landing_page_url": "https://example.org/paper",
                     "pdf_url": "https://example.org/paper.pdf",
-                    "source": {"display_name": "Nature Computational Science"},
+                    "source": {
+                        "display_name": "Nature Computational Science",
+                        "issn_l": "2662-8457",
+                        "issn": ["2662-8457", "2662-8465"],
+                    },
                 },
             }
         ],
@@ -60,6 +64,9 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
     assert papers[0].authors == ["Alice", "Bob"]
     assert papers[0].pdf_url == "https://example.org/paper.pdf"
     assert papers[0].venue == "Nature Computational Science"
+    assert papers[0].venue_issns == ["2662-8457", "2662-8465"]
+    assert papers[0].doi == "https://doi.org/10.0000/example"
+    assert papers[0].external_id == "https://openalex.org/W123"
     assert papers[0].published_date == "2026-07-02"
     assert calls[0][1]["filter"].startswith("from_publication_date:")
     assert "locations.source.issn:1549-9618" in calls[0][1]["filter"]

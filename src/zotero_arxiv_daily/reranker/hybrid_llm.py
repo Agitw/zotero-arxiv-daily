@@ -8,7 +8,7 @@ from loguru import logger
 from openai import OpenAI
 from omegaconf import OmegaConf
 
-from .base import BaseReranker, register_reranker
+from .base import BaseReranker, get_venue_weight, register_reranker
 from .llm import _as_plain_dict, _extract_scores
 from ..protocol import CorpusPaper, Paper
 
@@ -76,7 +76,7 @@ class HybridLlmReranker(BaseReranker):
                 score,
             )
 
-        llm_candidate_indices = self._llm_candidate_indices(embedding_scores)
+        llm_candidate_indices = self.select_llm_candidate_indices(candidates, embedding_scores)
         if len(llm_candidate_indices) < len(candidates):
             logger.info(
                 f"DeepSeek scoring limited to top {len(llm_candidate_indices)} "
@@ -110,18 +110,63 @@ class HybridLlmReranker(BaseReranker):
                 paper.score = score * 10
         return sorted(candidates, key=lambda paper: paper.score or 0.0, reverse=True)
 
-    def _llm_candidate_indices(self, embedding_scores: list[float]) -> list[int]:
+    def select_llm_candidate_indices(
+        self,
+        candidates: list[Paper],
+        embedding_scores: list[float],
+    ) -> list[int]:
+        for paper in candidates:
+            paper.llm_selection_reason = None
         llm_candidate_num = self.hybrid_config.get("llm_candidate_num")
         if llm_candidate_num is None:
-            return list(range(len(embedding_scores)))
+            selected = list(range(len(embedding_scores)))
+            for idx in selected:
+                candidates[idx].llm_selection_reason = "global"
+            return selected
         limit = max(0, int(llm_candidate_num))
-        if limit >= len(embedding_scores):
-            return list(range(len(embedding_scores)))
-        return sorted(
+        ranked = sorted(
             range(len(embedding_scores)),
-            key=lambda idx: embedding_scores[idx],
-            reverse=True,
-        )[:limit]
+            key=lambda idx: (-embedding_scores[idx], idx),
+        )
+        if limit >= len(ranked):
+            for idx in ranked:
+                candidates[idx].llm_selection_reason = "global"
+            return ranked
+
+        global_config = self.hybrid_config.get("llm_global_candidate_num")
+        global_limit = limit if global_config is None else min(limit, max(0, int(global_config)))
+        reserve_limit = max(0, int(self.hybrid_config.get("llm_high_impact_candidate_num") or 0))
+        minimum_score = float(self.hybrid_config.get("llm_high_impact_min_score") or 0.0)
+        venue_weights = self.config.reranker.get("venue_weights")
+
+        selected = ranked[:global_limit]
+        selected_set = set(selected)
+        for idx in selected:
+            candidates[idx].llm_selection_reason = "global"
+
+        reserve_candidates = [
+            idx
+            for idx in ranked
+            if idx not in selected_set
+            and np.isfinite(embedding_scores[idx])
+            and embedding_scores[idx] >= minimum_score
+            and get_venue_weight(candidates[idx], venue_weights) > 1.0
+        ][:reserve_limit]
+        for idx in reserve_candidates:
+            selected.append(idx)
+            selected_set.add(idx)
+            candidates[idx].llm_selection_reason = "venue_reserve"
+
+        for idx in ranked:
+            if len(selected) >= limit:
+                break
+            if idx in selected_set:
+                continue
+            selected.append(idx)
+            selected_set.add(idx)
+            candidates[idx].llm_selection_reason = "global_fill"
+
+        return sorted(selected, key=lambda idx: (-embedding_scores[idx], idx))
 
     def get_similarity_score(self, s1: list[str], s2: list[str]) -> np.ndarray:
         s1_embeddings = np.array(self.embedding_client.encode(s1))
