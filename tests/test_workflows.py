@@ -20,3 +20,12 @@ def test_email_workflows_restore_and_save_history_and_upload_funnel(workflow_nam
     assert "actions/upload-artifact@v4" in workflow
     assert "outputs/recommendation-funnel.json" in workflow
     assert "if: always()" in workflow
+
+
+def test_daily_email_schedule_avoids_top_of_hour_congestion():
+    workflow = (Path(__file__).parent.parent / ".github" / "workflows" / "main.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "cron: '50 0 * * *'" in workflow
+    assert "08:50 Asia/Shanghai" in workflow
