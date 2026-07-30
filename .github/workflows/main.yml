@@ -35,6 +35,14 @@ jobs:
           restore-keys: |
             zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-
 
+      - name: Restore recommendation history
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/recommendation-history.json
+          key: recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-
+
       - name: Run script
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
@@ -52,3 +60,18 @@ jobs:
           echo "Use custom config: "
           cat config/custom.yaml
           uv run src/zotero_arxiv_daily/main.py
+
+      - name: Save recommendation history
+        if: success() && hashFiles('.cache/recommendation-history.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/recommendation-history.json
+          key: recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload recommendation funnel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommendation-funnel-${{ github.run_id }}
+          path: outputs/recommendation-funnel.json
+          if-no-files-found: warn

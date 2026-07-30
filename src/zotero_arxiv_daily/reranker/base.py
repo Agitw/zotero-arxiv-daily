@@ -6,6 +6,27 @@ import numpy as np
 from typing import Type
 
 
+def get_venue_weight(
+    paper: Paper,
+    venue_weights: Mapping[str, float] | None,
+) -> float:
+    if not venue_weights:
+        return 1.0
+    normalized_weights = {
+        str(key).strip().casefold(): float(weight)
+        for key, weight in venue_weights.items()
+    }
+    issn_weights = [
+        normalized_weights[issn.strip().casefold()]
+        for issn in paper.venue_issns or []
+        if issn.strip().casefold() in normalized_weights
+    ]
+    if issn_weights:
+        return max(issn_weights)
+    venue = (paper.venue or "").strip().casefold()
+    return normalized_weights.get(venue, 1.0)
+
+
 def apply_venue_weights(
     papers: list[Paper],
     venue_weights: Mapping[str, float] | None,
@@ -14,14 +35,10 @@ def apply_venue_weights(
     if not venue_weights:
         return papers
 
-    normalized_weights = {
-        str(venue).strip().casefold(): float(weight)
-        for venue, weight in venue_weights.items()
-    }
     adjusted = False
     for paper in papers:
         venue = (paper.venue or "").strip()
-        weight = normalized_weights.get(venue.casefold(), 1.0)
+        weight = get_venue_weight(paper, venue_weights)
         if weight == 1.0:
             continue
         paper.score = (paper.score or 0.0) * weight

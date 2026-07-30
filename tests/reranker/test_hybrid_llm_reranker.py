@@ -426,6 +426,35 @@ def test_hybrid_llm_reranker_limits_deepseek_scoring_to_top_embedding_candidates
     assert candidates[2].score == 0.0
 
 
+def test_hybrid_llm_candidate_selection_reserves_space_for_high_impact_journals(config, tmp_path, monkeypatch):
+    candidates = [
+        make_sample_paper(title=f"Candidate {idx}")
+        for idx in range(70)
+    ]
+    candidates[64].venue = "Nature Machine Intelligence"
+    candidates[64].venue_issns = ["2522-5839"]
+    embedding_scores = [0.90 - idx * 0.01 for idx in range(70)]
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: FakeEmbeddingClient({}),
+    )
+    hybrid_config = _enable_hybrid(config, tmp_path / "cache.json")
+    with open_dict(hybrid_config.reranker.hybrid_llm):
+        hybrid_config.reranker.hybrid_llm.llm_candidate_num = 60
+        hybrid_config.reranker.hybrid_llm.llm_global_candidate_num = 50
+        hybrid_config.reranker.hybrid_llm.llm_high_impact_candidate_num = 10
+        hybrid_config.reranker.hybrid_llm.llm_high_impact_min_score = 0.20
+
+    reranker = HybridLlmReranker(hybrid_config)
+    selected = reranker.select_llm_candidate_indices(candidates, embedding_scores)
+
+    assert len(selected) == 60
+    assert 64 in selected
+    assert 59 not in selected
+    assert candidates[64].llm_selection_reason == "venue_reserve"
+
+
 def test_hybrid_llm_reranker_treats_openai_timeouts_as_retryable():
     timeout_error = type("APITimeoutError", (Exception,), {})("request timed out")
 

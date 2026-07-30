@@ -141,7 +141,11 @@ class OpenAlexRetriever(BaseRetriever):
         ]
         authors = [author for author in authors if author]
         url = primary_location.get("landing_page_url") or raw_paper.get("doi") or raw_paper.get("id")
-        venue = (primary_location.get("source") or {}).get("display_name")
+        venue_source = primary_location.get("source") or {}
+        venue = venue_source.get("display_name")
+        venue_issns = [str(issn) for issn in venue_source.get("issn") or [] if issn]
+        if not venue_issns and venue_source.get("issn_l"):
+            venue_issns = [str(venue_source["issn_l"])]
         return Paper(
             source=self.name,
             title=raw_paper.get("title") or "",
@@ -152,4 +156,7 @@ class OpenAlexRetriever(BaseRetriever):
             full_text=None,
             venue=venue,
             published_date=raw_paper.get("publication_date"),
+            doi=raw_paper.get("doi"),
+            external_id=raw_paper.get("id"),
+            venue_issns=list(dict.fromkeys(venue_issns)) or None,
         )

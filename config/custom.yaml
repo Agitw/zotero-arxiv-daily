@@ -35,9 +35,9 @@ source:
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
   openalex:
-    days: 2
+    days: 14
     per_page: 200
-    max_results: 800
+    max_results: 3000
     mailto: null
     issns:
       # CAS 2025 Q1/Q2 computational chemistry / cheminformatics
@@ -80,6 +80,9 @@ executor:
   source: ['arxiv','biorxiv','openalex']
   rerank_candidate_num: null
   max_paper_num: 30
+  recommendation_history_path: .cache/recommendation-history.json
+  recommendation_history_days: 60
+  recommendation_funnel_path: outputs/recommendation-funnel.json
   feedback_path: ${oc.env:FEEDBACK_PATH,config/feedback.json}
   feedback_endpoint: ${oc.env:FEEDBACK_ENDPOINT,''}
   feedback_secret: ${oc.env:FEEDBACK_SECRET,''}
@@ -90,18 +93,18 @@ executor:
 reranker:
   # Final score = max(0, relevance score * venue weight + feedback adjustment).
   venue_weights:
-    Nature Machine Intelligence: 1.50
-    Nature Methods: 1.50
-    Nature Biotechnology: 1.50
-    Nature Computational Science: 1.40
-    ACS Central Science: 1.40
-    Chemical Science: 1.35
-    Genome Biology: 1.35
-    Nucleic Acids Research: 1.35
-    Briefings in Bioinformatics: 1.30
-    Genome Research: 1.30
-    eLife: 1.30
-    Molecular Systems Biology: 1.30
+    "2522-5839": 1.50 # Nature Machine Intelligence
+    "1548-7091": 1.50 # Nature Methods
+    "1087-0156": 1.50 # Nature Biotechnology
+    "2662-8457": 1.40 # Nature Computational Science
+    "2374-7943": 1.40 # ACS Central Science
+    "2041-6539": 1.35 # Chemical Science
+    "1474-760X": 1.35 # Genome Biology
+    "0305-1048": 1.35 # Nucleic Acids Research
+    "1467-5463": 1.30 # Briefings in Bioinformatics
+    "1088-9051": 1.30 # Genome Research
+    "2050-084X": 1.30 # eLife
+    "1744-4292": 1.30 # Molecular Systems Biology
   hybrid_llm:
     model: deepseek-v4-flash
     embedding_model: BAAI/bge-small-en-v1.5

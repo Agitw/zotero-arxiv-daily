@@ -198,6 +198,50 @@ def test_fetch_zotero_corpus_auto_prefers_api_when_credentials_are_present(confi
 # ---------------------------------------------------------------------------
 
 
+def test_run_writes_empty_funnel_when_zotero_corpus_is_empty(config, tmp_path):
+    import json
+
+    from omegaconf import open_dict
+
+    funnel_path = tmp_path / "recommendation-funnel.json"
+    with open_dict(config.executor):
+        config.executor.recommendation_funnel_path = str(funnel_path)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {}
+    executor.fetch_zotero_corpus = lambda: []
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    report = json.loads(funnel_path.read_text(encoding="utf-8"))
+    assert report["stage_totals"] == {"final": 0}
+
+
+def test_run_records_pipeline_failure_in_funnel_and_reraises(config, tmp_path):
+    import json
+
+    from omegaconf import open_dict
+
+    funnel_path = tmp_path / "recommendation-funnel.json"
+    with open_dict(config.executor):
+        config.executor.recommendation_funnel_path = str(funnel_path)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.fetch_zotero_corpus = lambda: (_ for _ in ()).throw(RuntimeError("Zotero unavailable"))
+
+    with pytest.raises(RuntimeError, match="Zotero unavailable"):
+        executor.run()
+
+    report = json.loads(funnel_path.read_text(encoding="utf-8"))
+    assert report["failure"] == {
+        "type": "RuntimeError",
+        "message": "Zotero unavailable",
+    }
+
+
 def test_run_end_to_end(config, monkeypatch):
     """Full pipeline: Zotero fetch -> filter -> retrieve -> rerank -> TLDR -> email."""
     import smtplib
@@ -383,6 +427,73 @@ def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, mo
     assert len(summarized) == 20
     assert summarized[0] == "Paper 49"
     assert summarized[-1] == "Paper 30"
+
+
+def test_run_filters_recommendation_history_and_records_only_emailed_papers(config, tmp_path, monkeypatch):
+    import json
+
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.protocol import Paper
+    from zotero_arxiv_daily.recommendation_history import RecommendationHistory
+
+    history_path = tmp_path / "recommendation-history.json"
+    funnel_path = tmp_path / "recommendation-funnel.json"
+    already_sent = make_sample_paper(title="Already sent", doi="10.1000/already-sent")
+    selected = make_sample_paper(title="Selected", doi="10.1000/selected")
+    below_cutoff = make_sample_paper(title="Below cutoff", doi="10.1000/below-cutoff")
+    RecommendationHistory(history_path).record([already_sent])
+    with open_dict(config.executor):
+        config.executor.recommendation_history_path = str(history_path)
+        config.executor.recommendation_history_days = 60
+        config.executor.recommendation_funnel_path = str(funnel_path)
+        config.executor.max_paper_num = 1
+        config.executor.feedback_path = None
+
+    seen_by_reranker = []
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return [already_sent, selected, below_cutoff]
+
+    class StubReranker:
+        def rerank(self, papers, corpus):
+            seen_by_reranker.extend(papers)
+            selected.score = 9.0
+            below_cutoff.score = 8.0
+            return [selected, below_cutoff]
+
+    monkeypatch.setattr(Paper, "generate_tldr", lambda self, client, params: "summary")
+    monkeypatch.setattr(Paper, "generate_affiliations", lambda self, client, params: [])
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, content: None)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"openalex": StubRetriever()}
+    executor.reranker = StubReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(1)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert seen_by_reranker == [selected, below_cutoff]
+    persisted = RecommendationHistory(history_path)
+    assert persisted.filter_unseen([selected]) == []
+    assert persisted.filter_unseen([below_cutoff]) == [below_cutoff]
+    report = json.loads(funnel_path.read_text(encoding="utf-8"))
+    assert report["stage_totals"] == {
+        "retrieved": 3,
+        "unseen": 2,
+        "rerank_candidates": 2,
+        "semantic_ranked": 2,
+        "llm_scored": 0,
+        "weighted_ranked": 2,
+        "feedback_ranked": 2,
+        "final": 1,
+        "emailed": 1,
+    }
 
 
 def test_run_applies_feedback_profile_before_summarizing_top_papers(config, tmp_path, monkeypatch):
