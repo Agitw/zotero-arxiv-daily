@@ -45,6 +45,27 @@ def as_bool(value) -> bool:
     return bool(value)
 
 
+def select_papers_for_email(
+    ranked_papers,
+    max_paper_num: int,
+    include_all_deepseek_score_at_least: float | None,
+):
+    top_limit = max(0, int(max_paper_num))
+    if include_all_deepseek_score_at_least is None:
+        return ranked_papers[:top_limit]
+    threshold = float(include_all_deepseek_score_at_least)
+    return [
+        paper
+        for index, paper in enumerate(ranked_papers)
+        if index < top_limit
+        or (
+            paper.score_source == "deepseek"
+            and paper.deepseek_score is not None
+            and paper.deepseek_score >= threshold
+        )
+    ]
+
+
 class Executor:
     def __init__(self, config:DictConfig):
         self.config = config
@@ -209,15 +230,29 @@ class Executor:
             feedback_profile = self._merge_feedback_profiles(feedback_profile, github_feedback)
             reranked_papers = apply_feedback(reranked_papers, feedback_profile)
             funnel.observe("feedback_ranked", reranked_papers)
-            reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
+            ranked_count = len(reranked_papers)
+            reranked_papers = select_papers_for_email(
+                reranked_papers,
+                self.config.executor.max_paper_num,
+                self.config.executor.get("include_all_deepseek_score_at_least"),
+            )
+            extra_count = max(0, len(reranked_papers) - int(self.config.executor.max_paper_num))
+            if extra_count:
+                logger.info(
+                    f"Included {extra_count} additional papers scoring at least "
+                    f"{self.config.executor.include_all_deepseek_score_at_least} by DeepSeek "
+                    f"after the top-{self.config.executor.max_paper_num} limit "
+                    f"({ranked_count} ranked papers total)"
+                )
             funnel.observe("final", reranked_papers)
             logger.info("Generating TLDR and affiliations...")
             openai_client = self.get_openai_client()
             if getattr(self.reranker, "llm_scoring_disabled", False):
-                logger.warning("LLM rerank scoring is unavailable; generating TLDR but skipping affiliations")
+                logger.warning(
+                    "LLM rerank scoring is unavailable; generating TLDR and preserving retriever affiliations"
+                )
                 for p in reranked_papers:
                     p.generate_tldr(openai_client, self.config.llm)
-                    p.affiliations = None
             else:
                 for p in tqdm(reranked_papers):
                     p.generate_tldr(openai_client, self.config.llm)

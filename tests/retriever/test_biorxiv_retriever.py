@@ -96,6 +96,20 @@ def test_biorxiv_convert_to_paper(config):
     assert paper.published_date == "2026-03-02"
 
 
+def test_biorxiv_convert_to_paper_uses_corresponding_institution(config):
+    with open_dict(config.source):
+        config.source.biorxiv = {"category": ["bioinformatics"]}
+    retriever = BiorxivRetriever(config)
+    raw = {
+        **SAMPLE_BIORXIV_API_RESPONSE["collection"][0],
+        "author_corresponding_institution": "Institute of Genomics",
+    }
+
+    paper = retriever.convert_to_paper(raw)
+
+    assert paper.affiliations == ["通讯单位：Institute of Genomics"]
+
+
 def test_biorxiv_requires_category(config):
     with open_dict(config.source):
         config.source.biorxiv = {"category": None}

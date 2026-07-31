@@ -15,8 +15,16 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
                 "id": "https://openalex.org/W123",
                 "title": "A computational biology paper",
                 "authorships": [
-                    {"author": {"display_name": "Alice"}},
-                    {"author": {"display_name": "Bob"}},
+                    {
+                        "author": {"display_name": "Alice"},
+                        "institutions": [{"display_name": "Institute A"}],
+                        "is_corresponding": False,
+                    },
+                    {
+                        "author": {"display_name": "Bob"},
+                        "institutions": [{"display_name": "Institute B"}],
+                        "is_corresponding": True,
+                    },
                 ],
                 "abstract_inverted_index": {
                     "Protein": [0],
@@ -62,6 +70,10 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
     assert papers[0].title == "A computational biology paper"
     assert papers[0].abstract == "Protein dynamics prediction"
     assert papers[0].authors == ["Alice", "Bob"]
+    assert papers[0].affiliations == [
+        "第一单位：Institute A",
+        "通讯单位：Institute B",
+    ]
     assert papers[0].pdf_url == "https://example.org/paper.pdf"
     assert papers[0].venue == "Nature Computational Science"
     assert papers[0].venue_issns == ["2662-8457", "2662-8465"]

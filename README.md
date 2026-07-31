@@ -170,6 +170,7 @@ executor:
   debug: false # Whether to use debug mode. Example: true
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
+  include_all_deepseek_score_at_least: null # Also email every successful DeepSeek score at or above this 0-10 threshold. Example: 8.0
   recommendation_history_path: .cache/recommendation-history.json
   recommendation_history_days: 60
   recommendation_funnel_path: outputs/recommendation-funnel.json
@@ -185,7 +186,7 @@ That's all! Now you can test the workflow by manually triggering it:
 
 Then check the log and the receiver email after it finishes.
 
-The main workflow is scheduled for 00:50 UTC (08:50 Asia/Shanghai) every day. GitHub Actions cron starts are best-effort and may be delayed. You can change the schedule in `.github/workflows/main.yml`.
+The main workflow is scheduled for 22:00 UTC (06:00 Asia/Shanghai on the following calendar day). GitHub Actions cron starts are best-effort and may be delayed. You can change the schedule in `.github/workflows/main.yml`.
 
 ### Local Running
 Supported by [uv](https://github.com/astral-sh/uv), this workflow can easily run on your local device if uv is installed:
@@ -216,11 +217,11 @@ For a successfully scored paper, blended relevance is `0.7 * DeepSeek score + 0.
 - A venue bonus is allowed only when the paper was actually scored by DeepSeek and its DeepSeek relevance is at least `6.0`. OpenAlex ISSNs are matched first; an exact case-insensitive venue name remains a fallback. Configured bonuses are `+0.80`, `+0.60`, `+0.45`, or `+0.30`.
 - `feedback adjustment` is the existing additive preference/feedback score, such as positive keywords or explicit likes and dislikes.
 
-For example, a Nature Machine Intelligence paper with embedding relevance `7.0` and DeepSeek relevance `8.0` receives blended relevance `7.7` and the `+0.80` venue bonus, for `8.5` before feedback. A failed-batch paper receives no venue bonus, even if it is from the same journal. Venue bonuses are applied before the final `max_paper_num` cut. If `rerank_candidate_num` is configured, that earlier candidate limit is applied first; the repository default leaves it unset.
+For example, a Nature Machine Intelligence paper with embedding relevance `7.0` and DeepSeek relevance `8.0` receives blended relevance `7.7` and the `+0.80` venue bonus, for `8.5` before feedback. A failed-batch paper receives no venue bonus, even if it is from the same journal. Venue bonuses are applied before email selection. The email contains the final-ranking top `max_paper_num` papers plus every remaining successfully evaluated paper whose raw DeepSeek relevance reaches `include_all_deepseek_score_at_least`; the custom configuration uses 30 and 8.0 respectively. If `rerank_candidate_num` is configured, that earlier candidate limit is applied first; the repository default leaves it unset.
 
 Every run incrementally writes `outputs/recommendation-funnel.json` with separate selected, attempted, scored, and fallback counts plus per-paper embedding scores, DeepSeek scores, score sources, venue bonuses, and rank changes. GitHub Actions uploads this report as an artifact and restores recommendation history on the next run. History is recorded only after email delivery succeeds; previews and failed sends do not suppress papers from future runs.
 
-Each emailed paper is summarized from its title and retrieved abstract only. The 768-token response budget is organized into five fixed fields: research problem, solution approach, core method, key results, and main conclusion. Missing abstract details are shown as “摘要未说明”; malformed output is handled locally without a second LLM repair call. Affiliation extraction uses a separate 128-token budget and keeps only the first-author and corresponding-author institutions when the available paper preview identifies them.
+Each emailed paper is summarized from its title and retrieved abstract only. The 768-token response budget is organized into five fixed fields: research problem, solution approach, core method, key results, and main conclusion. Missing abstract details are shown as “摘要未说明”; malformed output is handled locally without a second LLM repair call. Affiliations use trusted source metadata first (OpenAlex first/corresponding authors and bioRxiv/medRxiv corresponding institutions), then a separate 128-token extraction from the available paper preview. Only first-author and corresponding-author institutions are shown; no institution is inferred from an abstract.
 
 ## 📌 Limitations
 - The recommendation algorithm is very simple, it may not accurately reflect your interest. Welcome better ideas for improving the algorithm!

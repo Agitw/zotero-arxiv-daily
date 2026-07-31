@@ -43,6 +43,8 @@ def test_runtime_config_enables_recommendation_history_and_funnel():
     assert custom.executor.recommendation_history_path == ".cache/recommendation-history.json"
     assert custom.executor.recommendation_history_days == 60
     assert custom.executor.recommendation_funnel_path == "outputs/recommendation-funnel.json"
+    assert custom.executor.max_paper_num == 30
+    assert custom.executor.include_all_deepseek_score_at_least == 8.0
 
 
 def test_base_config_uses_bounded_deepseek_budgets():

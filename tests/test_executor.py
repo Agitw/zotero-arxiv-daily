@@ -429,6 +429,67 @@ def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, mo
     assert summarized[-1] == "Paper 30"
 
 
+def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit(
+    config, monkeypatch
+):
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_corpus, make_sample_paper
+    from zotero_arxiv_daily.protocol import Paper
+
+    with open_dict(config):
+        config.executor.max_paper_num = 30
+        config.executor.include_all_deepseek_score_at_least = 8.0
+        config.executor.send_empty = False
+        config.executor.feedback_path = None
+
+    candidates = [make_sample_paper(title=f"Paper {i}", venue=None) for i in range(35)]
+    candidates[30].deepseek_score = 8.0
+    candidates[30].score_source = "deepseek"
+    candidates[31].deepseek_score = 7.9
+    candidates[31].score_source = "deepseek"
+    candidates[32].deepseek_score = None
+    candidates[32].score_source = "embedding_fallback"
+    candidates[34].deepseek_score = 8.5
+    candidates[34].score_source = "deepseek"
+    summarized = []
+
+    class StubRetriever:
+        def retrieve_papers(self):
+            return candidates
+
+    class StubReranker:
+        def rerank(self, papers, corpus):
+            for index, paper in enumerate(papers):
+                paper.score = float(len(papers) - index)
+            return papers
+
+    def fake_tldr(self, openai_client, llm_params):
+        summarized.append(self.title)
+        self.tldr = "summary"
+        return self.tldr
+
+    monkeypatch.setattr(Paper, "generate_tldr", fake_tldr)
+    monkeypatch.setattr(Paper, "generate_affiliations", lambda self, client, params: [])
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, content: None)
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.retrievers = {"arxiv": StubRetriever()}
+    executor.reranker = StubReranker()
+    executor.openai_client = object()
+    executor.fetch_zotero_corpus = lambda: make_sample_corpus(3)
+    executor.filter_corpus = lambda corpus: corpus
+
+    executor.run()
+
+    assert summarized == [
+        *[f"Paper {index}" for index in range(30)],
+        "Paper 30",
+        "Paper 34",
+    ]
+
+
 def test_run_filters_recommendation_history_and_records_only_emailed_papers(config, tmp_path, monkeypatch):
     import json
 
@@ -655,7 +716,11 @@ def test_run_still_generates_tldr_when_reranker_disables_llm_scoring(config, mon
         config.executor.send_empty = False
 
     candidates = [
-        make_sample_paper(title="Paper 1", abstract="Abstract 1"),
+        make_sample_paper(
+            title="Paper 1",
+            abstract="Abstract 1",
+            affiliations=["第一单位：Institute A"],
+        ),
         make_sample_paper(title="Paper 2", abstract="Abstract 2"),
     ]
 
@@ -689,7 +754,7 @@ def test_run_still_generates_tldr_when_reranker_disables_llm_scoring(config, mon
     executor.run()
 
     assert [paper.tldr for paper in candidates] == ["Abstract 1", "Abstract 2"]
-    assert [paper.affiliations for paper in candidates] == [None, None]
+    assert [paper.affiliations for paper in candidates] == [["第一单位：Institute A"], None]
 
 
 def test_run_uses_chinese_tldr_fallback_when_reranker_disables_llm_scoring(config, monkeypatch):

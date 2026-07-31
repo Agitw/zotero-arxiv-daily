@@ -201,6 +201,23 @@ def test_affiliations_none_without_fulltext(llm_params):
     assert result is None
 
 
+def test_affiliations_preserve_retriever_metadata_without_calling_llm(llm_params):
+    metadata = ["第一单位：Institute A", "通讯单位：Institute B"]
+    paper = make_sample_paper(full_text=None, affiliations=metadata)
+    broken_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kw: (_ for _ in ()).throw(AssertionError("LLM must not be called"))
+            )
+        )
+    )
+
+    result = paper.generate_affiliations(broken_client, llm_params)
+
+    assert result == metadata
+    assert paper.affiliations == metadata
+
+
 def test_affiliations_deduplicates(llm_params):
     """The stub returns two distinct affiliations, so no dedup needed.
     But confirm the set() dedup in the code doesn't break anything.
