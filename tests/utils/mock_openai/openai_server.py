@@ -5,7 +5,7 @@ app = FastAPI()
 @app.post("/v1/chat/completions")
 async def chat_completions(request:dict):
     request_str = str(request)
-    is_affiliation = "You are an assistant who perfectly extracts affiliations" in request_str
+    is_affiliation = "You extract first-author and corresponding-author affiliations" in request_str
     return {'id': 'chatcmpl-CkUpDqPLWNJE4SZCoPsUbvf3RudrU',
  'created': 1765197615,
  'model': 'gpt-4o-mini-2024-07-18',
@@ -13,7 +13,7 @@ async def chat_completions(request:dict):
  'system_fingerprint': 'fp_efad92c60b',
  'choices': [{'finish_reason': 'stop',
    'index': 0,
-   'message': {'content': 'Hello! How can I assist you today?' if not is_affiliation else '["TsingHua University","Peking University"]',
+   'message': {'content': '{"research_problem":"Problem","solution_approach":"Approach","core_method":"Method","key_results":"Results","main_conclusion":"Conclusion"}' if not is_affiliation else '{"first_affiliation":"TsingHua University","corresponding_affiliations":["Peking University"]}',
     'role': 'assistant',
     'annotations': []},
    'provider_specific_fields': {'content_filter_results': {'hate': {'filtered': False,

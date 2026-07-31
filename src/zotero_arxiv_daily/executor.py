@@ -12,7 +12,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from .reranker import get_reranker_cls
-from .reranker.base import apply_venue_weights
+from .reranker.base import apply_venue_bonuses
 from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
@@ -167,16 +167,36 @@ class Executor:
             funnel.observe("rerank_candidates", all_papers)
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            funnel.record_llm_batches(getattr(self.reranker, "llm_batch_metrics", []))
             funnel.observe("semantic_ranked", reranked_papers)
             funnel.observe(
-                "llm_scored",
+                "llm_selected",
                 [paper for paper in reranked_papers if paper.llm_selection_reason],
             )
-            reranked_papers = apply_venue_weights(
-                reranked_papers,
-                self.config.reranker.get("venue_weights"),
+            funnel.observe(
+                "llm_attempted",
+                [paper for paper in reranked_papers if paper.llm_scoring_attempted],
             )
-            funnel.observe("weighted_ranked", reranked_papers)
+            funnel.observe(
+                "llm_scored",
+                [paper for paper in reranked_papers if paper.llm_scoring_succeeded],
+            )
+            funnel.observe(
+                "llm_fallback",
+                [
+                    paper
+                    for paper in reranked_papers
+                    if paper.llm_scoring_attempted and not paper.llm_scoring_succeeded
+                ],
+            )
+            reranked_papers = apply_venue_bonuses(
+                reranked_papers,
+                self.config.reranker.get("venue_bonuses"),
+                minimum_deepseek_score=float(
+                    self.config.reranker.get("venue_bonus_min_deepseek_score") or 6.0
+                ),
+            )
+            funnel.observe("venue_bonus_ranked", reranked_papers)
             feedback_path = self.config.executor.get("feedback_path")
             feedback_profile = FeedbackProfile()
             if feedback_path:

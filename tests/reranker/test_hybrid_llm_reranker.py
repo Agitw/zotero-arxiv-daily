@@ -69,6 +69,22 @@ def _make_failing_chat_client():
     )
 
 
+def _make_sequence_chat_client(responses: list[str]):
+    calls = []
+
+    def create(**kwargs):
+        response = responses[len(calls)]
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=response))]
+        )
+
+    return SimpleNamespace(
+        calls=calls,
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+
+
 def _enable_hybrid(config, cache_path):
     with open_dict(config.executor):
         config.executor.reranker = "hybrid_llm"
@@ -121,11 +137,53 @@ def test_hybrid_llm_reranker_uses_cached_corpus_embeddings_for_deepseek_evidence
 
     ranked = HybridLlmReranker(_enable_hybrid(config, cache_path)).rerank(candidates, corpus)
 
-    assert ranked[0].score == 8.8
+    assert ranked[0].score == pytest.approx(
+        0.7 * 8.8 + 0.3 * ranked[0].embedding_score
+    )
     assert embedding_client.encoded_texts == ["candidate abstract"]
     prompt = str(chat_client.calls[0]["messages"])
     assert "Corpus Paper 2" in prompt
     assert "Corpus Paper 1" not in prompt
+
+
+def test_hybrid_llm_reranker_blends_successful_deepseek_scores_and_records_provenance(
+    config, tmp_path, monkeypatch
+):
+    corpus = make_sample_corpus(1)
+    candidates = [make_sample_paper(title="Candidate", abstract="candidate abstract")]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {
+                        "key": HybridLlmReranker.corpus_key(corpus[0]),
+                        "embedding": [1.0, 0.0],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: FakeEmbeddingClient({"candidate abstract": [1.0, 0.0]}),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: _make_chat_client('{"scores": [0.5]}'),
+    )
+
+    ranked = HybridLlmReranker(_enable_hybrid(config, cache_path)).rerank(candidates, corpus)
+
+    assert ranked[0].score == pytest.approx(6.5)
+    assert ranked[0].embedding_score == pytest.approx(10.0)
+    assert ranked[0].deepseek_score == pytest.approx(5.0)
+    assert ranked[0].score_source == "deepseek"
+    assert ranked[0].llm_scoring_attempted is True
+    assert ranked[0].llm_scoring_succeeded is True
 
 
 def test_hybrid_llm_reranker_records_zotero_evidence_for_email_reasons(config, tmp_path, monkeypatch):
@@ -167,6 +225,60 @@ def test_hybrid_llm_reranker_records_zotero_evidence_for_email_reasons(config, t
     assert "Corpus Paper 2" in ranked[0].recommendation_reason
     assert "Zotero" in ranked[0].recommendation_reason
     assert "摘要相似度" in ranked[0].recommendation_reason
+
+
+def test_hybrid_llm_reranker_deduplicates_and_trims_batch_evidence(
+    config, tmp_path, monkeypatch
+):
+    corpus = make_sample_corpus(1)
+    corpus[0].abstract = "e" * 700
+    candidates = [
+        make_sample_paper(title="Candidate A", abstract="a" * 900),
+        make_sample_paper(title="Candidate B", abstract="b" * 900),
+    ]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {
+                        "key": HybridLlmReranker.corpus_key(corpus[0]),
+                        "embedding": [1.0, 0.0],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    chat_client = _make_chat_client('{"scores": [0.8, 0.7]}')
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: FakeEmbeddingClient(
+            {"a" * 900: [1.0, 0.0], "b" * 900: [1.0, 0.0]}
+        ),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    hybrid_config = _enable_hybrid(config, cache_path)
+    with open_dict(hybrid_config.reranker.hybrid_llm):
+        hybrid_config.reranker.hybrid_llm.evidence_per_candidate = 1
+        hybrid_config.reranker.hybrid_llm.candidate_batch_size = 2
+        hybrid_config.reranker.hybrid_llm.max_abstract_chars = 700
+        hybrid_config.reranker.hybrid_llm.max_evidence_abstract_chars = 500
+
+    HybridLlmReranker(hybrid_config).rerank(candidates, corpus)
+
+    prompt = chat_client.calls[0]["messages"][1]["content"]
+    assert prompt.count("Corpus Paper 0") == 1
+    assert "e" * 500 in prompt
+    assert "e" * 501 not in prompt
+    assert "a" * 700 in prompt
+    assert "a" * 701 not in prompt
+    assert "Relevant evidence IDs: E1" in prompt
 
 
 def test_hybrid_llm_reranker_builds_corpus_embedding_cache_when_missing(config, tmp_path, monkeypatch):
@@ -272,7 +384,7 @@ def test_hybrid_llm_reranker_retries_retryable_deepseek_errors(config, tmp_path,
 
     ranked = HybridLlmReranker(_enable_hybrid(config, cache_path)).rerank(candidates, corpus)
 
-    assert ranked[0].score == 9.0
+    assert ranked[0].score == pytest.approx(9.3)
     assert len(chat_client.calls) == 2
 
 
@@ -321,8 +433,10 @@ def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_retryable_deep
 
     assert ranked[0].score == 10.0
     assert ranked[1].score == 10.0
-    assert reranker.llm_scoring_disabled is True
-    assert len(chat_client.calls) == 3
+    assert reranker.llm_scoring_disabled is False
+    assert reranker.llm_scoring_degraded is True
+    assert all(paper.score_source == "embedding_fallback" for paper in candidates)
+    assert len(chat_client.calls) == 6
 
 
 def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_malformed_deepseek_json(config, tmp_path, monkeypatch):
@@ -369,8 +483,69 @@ def test_hybrid_llm_reranker_falls_back_to_embedding_scores_after_malformed_deep
     assert [paper.title for paper in ranked] == ["Strong Candidate", "Weak Candidate"]
     assert candidates[0].score == 10.0
     assert candidates[1].score == 0.0
-    assert reranker.llm_scoring_disabled is True
-    assert len(chat_client.calls) == 1
+    assert reranker.llm_scoring_disabled is False
+    assert reranker.llm_scoring_degraded is True
+    assert all(paper.score_source == "embedding_fallback" for paper in candidates)
+    assert len(chat_client.calls) == 2
+
+
+def test_hybrid_llm_reranker_continues_after_one_batch_returns_malformed_json(
+    config, tmp_path, monkeypatch
+):
+    corpus = make_sample_corpus(1)
+    candidates = [
+        make_sample_paper(title="First", abstract="first abstract"),
+        make_sample_paper(title="Second", abstract="second abstract"),
+    ]
+    cache_path = tmp_path / "zotero-corpus-embeddings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "model": "fake-embedding-model",
+                "entries": [
+                    {
+                        "key": HybridLlmReranker.corpus_key(corpus[0]),
+                        "embedding": [1.0, 0.0],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    chat_client = _make_sequence_chat_client(
+        ["not valid json", '{"scores": [0.8]}']
+    )
+    monkeypatch.setattr(
+        HybridLlmReranker,
+        "_make_embedding_client",
+        lambda self: FakeEmbeddingClient(
+            {"first abstract": [1.0, 0.0], "second abstract": [0.8, 0.2]}
+        ),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.reranker.hybrid_llm.OpenAI",
+        lambda **kwargs: chat_client,
+    )
+    hybrid_config = _enable_hybrid(config, cache_path)
+    with open_dict(hybrid_config.reranker.hybrid_llm):
+        hybrid_config.reranker.hybrid_llm.candidate_batch_size = 1
+    reranker = HybridLlmReranker(hybrid_config)
+
+    reranker.rerank(candidates, corpus)
+
+    assert len(chat_client.calls) == 2
+    assert candidates[0].score_source == "embedding_fallback"
+    assert candidates[0].llm_scoring_succeeded is False
+    assert candidates[1].score_source == "deepseek"
+    assert candidates[1].deepseek_score == pytest.approx(8.0)
+    assert candidates[1].llm_scoring_succeeded is True
+    assert reranker.llm_scoring_degraded is True
+    assert [batch["status"] for batch in reranker.llm_batch_metrics] == [
+        "fallback",
+        "success",
+    ]
+    assert [batch["candidate_count"] for batch in reranker.llm_batch_metrics] == [1, 1]
+    assert all(batch["duration_seconds"] >= 0 for batch in reranker.llm_batch_metrics)
 
 
 def test_hybrid_llm_reranker_limits_deepseek_scoring_to_top_embedding_candidates(config, tmp_path, monkeypatch):
@@ -429,11 +604,12 @@ def test_hybrid_llm_reranker_limits_deepseek_scoring_to_top_embedding_candidates
 def test_hybrid_llm_candidate_selection_reserves_space_for_high_impact_journals(config, tmp_path, monkeypatch):
     candidates = [
         make_sample_paper(title=f"Candidate {idx}")
-        for idx in range(70)
+        for idx in range(130)
     ]
-    candidates[64].venue = "Nature Machine Intelligence"
-    candidates[64].venue_issns = ["2522-5839"]
-    embedding_scores = [0.90 - idx * 0.01 for idx in range(70)]
+    for candidate in candidates[100:]:
+        candidate.venue = "Nature Machine Intelligence"
+        candidate.venue_issns = ["2522-5839"]
+    embedding_scores = [1.0 - idx * 0.005 for idx in range(130)]
     monkeypatch.setattr(
         HybridLlmReranker,
         "_make_embedding_client",
@@ -441,18 +617,18 @@ def test_hybrid_llm_candidate_selection_reserves_space_for_high_impact_journals(
     )
     hybrid_config = _enable_hybrid(config, tmp_path / "cache.json")
     with open_dict(hybrid_config.reranker.hybrid_llm):
-        hybrid_config.reranker.hybrid_llm.llm_candidate_num = 60
-        hybrid_config.reranker.hybrid_llm.llm_global_candidate_num = 50
-        hybrid_config.reranker.hybrid_llm.llm_high_impact_candidate_num = 10
+        hybrid_config.reranker.hybrid_llm.llm_candidate_num = 100
+        hybrid_config.reranker.hybrid_llm.llm_global_candidate_num = 70
+        hybrid_config.reranker.hybrid_llm.llm_high_impact_candidate_num = 30
         hybrid_config.reranker.hybrid_llm.llm_high_impact_min_score = 0.20
 
     reranker = HybridLlmReranker(hybrid_config)
     selected = reranker.select_llm_candidate_indices(candidates, embedding_scores)
 
-    assert len(selected) == 60
-    assert 64 in selected
-    assert 59 not in selected
-    assert candidates[64].llm_selection_reason == "venue_reserve"
+    assert len(selected) == 100
+    assert selected == [*range(70), *range(100, 130)]
+    assert candidates[100].llm_selection_reason == "venue_reserve"
+    assert candidates[70].llm_selection_reason is None
 
 
 def test_hybrid_llm_reranker_treats_openai_timeouts_as_retryable():

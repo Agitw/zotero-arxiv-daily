@@ -461,7 +461,16 @@ def test_run_filters_recommendation_history_and_records_only_emailed_papers(conf
         def rerank(self, papers, corpus):
             seen_by_reranker.extend(papers)
             selected.score = 9.0
+            selected.llm_selection_reason = "global"
+            selected.llm_scoring_attempted = True
+            selected.llm_scoring_succeeded = True
+            selected.score_source = "deepseek"
+            selected.deepseek_score = 8.0
             below_cutoff.score = 8.0
+            below_cutoff.llm_selection_reason = "venue_reserve"
+            below_cutoff.llm_scoring_attempted = True
+            below_cutoff.llm_scoring_succeeded = False
+            below_cutoff.score_source = "embedding_fallback"
             return [selected, below_cutoff]
 
     monkeypatch.setattr(Paper, "generate_tldr", lambda self, client, params: "summary")
@@ -488,8 +497,11 @@ def test_run_filters_recommendation_history_and_records_only_emailed_papers(conf
         "unseen": 2,
         "rerank_candidates": 2,
         "semantic_ranked": 2,
-        "llm_scored": 0,
-        "weighted_ranked": 2,
+        "llm_selected": 2,
+        "llm_attempted": 2,
+        "llm_scored": 1,
+        "llm_fallback": 1,
+        "venue_bonus_ranked": 2,
         "feedback_ranked": 2,
         "final": 1,
         "emailed": 1,

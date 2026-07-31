@@ -10,7 +10,8 @@ from tests.canned_responses import make_sample_paper, make_stub_openai_client
 def llm_params():
     return {
         "language": "English",
-        "generation_kwargs": {"model": "gpt-4o-mini", "max_tokens": 16384},
+        "generation_kwargs": {"model": "gpt-4o-mini", "max_tokens": 768},
+        "affiliation_generation_kwargs": {"max_tokens": 128},
     }
 
 
@@ -23,7 +24,11 @@ def test_tldr_returns_response(llm_params):
     client = make_stub_openai_client()
     paper = make_sample_paper()
     result = paper.generate_tldr(client, llm_params)
-    assert result == "Hello! How can I assist you today?"
+    assert "研究问题：Widget stability is poorly understood." in result
+    assert "解决思路：The study combines modeling and experiments." in result
+    assert "核心方法：A constrained graph model is introduced." in result
+    assert "关键结果：The abstract reports improved stability." in result
+    assert "主要结论：The method supports robust widget design." in result
     assert paper.tldr == result
 
 
@@ -34,7 +39,7 @@ def test_tldr_without_abstract_or_fulltext(llm_params):
     assert "Failed to generate TLDR" in result
 
 
-def test_tldr_falls_back_to_abstract_on_error(llm_params):
+def test_tldr_falls_back_to_local_missing_fields_on_error(llm_params):
     paper = make_sample_paper()
 
     # Client whose create() raises
@@ -46,14 +51,30 @@ def test_tldr_falls_back_to_abstract_on_error(llm_params):
         )
     )
     result = paper.generate_tldr(broken_client, llm_params)
-    assert result == paper.abstract
+    assert result.count("摘要未说明") == 5
 
 
-def test_tldr_truncates_long_prompt(llm_params):
-    client = make_stub_openai_client()
-    paper = make_sample_paper(full_text="word " * 10000)
-    result = paper.generate_tldr(client, llm_params)
-    assert result is not None
+def test_tldr_uses_title_and_abstract_but_not_full_text(llm_params):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return make_stub_openai_client().chat.completions.create(**kwargs)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    paper = make_sample_paper(
+        title="Visible title",
+        abstract="Visible abstract",
+        full_text="SECRET FULL TEXT MUST NOT BE SENT",
+    )
+
+    paper.generate_tldr(client, llm_params)
+
+    request_text = str(calls[0]["messages"])
+    assert "Visible title" in request_text
+    assert "Visible abstract" in request_text
+    assert "SECRET FULL TEXT MUST NOT BE SENT" not in request_text
+    assert calls[0]["max_tokens"] == 768
 
 
 def test_tldr_prompt_requests_richer_scientific_summary(llm_params):
@@ -72,10 +93,11 @@ def test_tldr_prompt_requests_richer_scientific_summary(llm_params):
     paper.generate_tldr(client, llm_params)
 
     request_text = str(calls[0]["messages"])
-    assert "3-4 concise bullet points" in request_text
-    assert "why it matters" in request_text
-    assert "method or model" in request_text
-    assert "key result" in request_text
+    assert "research_problem" in request_text
+    assert "solution_approach" in request_text
+    assert "core_method" in request_text
+    assert "key_results" in request_text
+    assert "main_conclusion" in request_text
 
 
 def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
@@ -99,8 +121,11 @@ def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
 
     request_text = str(calls[0]["messages"])
     assert "中文" in request_text
-    assert "3-4 个简短要点" in request_text
-    assert "每个要点单独一行" in request_text
+    assert "研究问题" in request_text
+    assert "解决思路" in request_text
+    assert "核心方法" in request_text
+    assert "关键结果" in request_text
+    assert "主要结论" in request_text
 
 
 def test_chinese_tldr_prompt_requests_research_reading_structure(llm_params):
@@ -109,7 +134,7 @@ def test_chinese_tldr_prompt_requests_research_reading_structure(llm_params):
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="- 一句话结论：这是中文摘要。"))]
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"research_problem":"问题"}'))]
         )
 
     client = SimpleNamespace(
@@ -124,17 +149,13 @@ def test_chinese_tldr_prompt_requests_research_reading_structure(llm_params):
     paper.generate_tldr(client, llm_params)
 
     request_text = str(calls[0]["messages"])
-    assert "一句话结论" in request_text
-    assert "关键发现" in request_text
-    assert "为什么值得看" in request_text
+    assert "摘要未说明" in request_text
+    assert "不得根据常识补全" in request_text
 
 
-def test_chinese_tldr_rewrites_english_llm_response(llm_params):
+def test_chinese_tldr_does_not_make_a_second_format_repair_call(llm_params):
     calls = []
-    responses = [
-        "Deep learning has outgrown any single mathematical explanation.",
-        "该论文系统梳理了深度学习理论从近似、优化到泛化机制的发展脉络。",
-    ]
+    responses = ["Deep learning has outgrown any single mathematical explanation."]
 
     def create(**kwargs):
         calls.append(kwargs)
@@ -153,11 +174,8 @@ def test_chinese_tldr_rewrites_english_llm_response(llm_params):
 
     result = paper.generate_tldr(client, llm_params)
 
-    assert result == "该论文系统梳理了深度学习理论从近似、优化到泛化机制的发展脉络。"
-    assert len(calls) == 2
-    assert "改写为中文" in str(calls[1]["messages"])
-    assert "3-4 个简短要点" in str(calls[1]["messages"])
-    assert "一段短摘要" not in str(calls[1]["messages"])
+    assert len(calls) == 1
+    assert result.count("摘要未说明") == 5
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +188,10 @@ def test_affiliations_returns_parsed_list(llm_params):
     paper = make_sample_paper()
     result = paper.generate_affiliations(client, llm_params)
     assert isinstance(result, list)
-    assert "TsingHua University" in result
-    assert "Peking University" in result
+    assert result == [
+        "第一单位：TsingHua University",
+        "通讯单位：Peking University",
+    ]
 
 
 def test_affiliations_none_without_fulltext(llm_params):
@@ -189,6 +209,31 @@ def test_affiliations_deduplicates(llm_params):
     paper = make_sample_paper()
     result = paper.generate_affiliations(client, llm_params)
     assert len(result) == len(set(result))
+
+
+def test_affiliations_uses_a_128_token_budget(llm_params):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"first_affiliation":"Institute A",'
+                            '"corresponding_affiliations":["Institute B"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    make_sample_paper().generate_affiliations(client, llm_params)
+
+    assert calls[0]["max_tokens"] == 128
 
 
 def test_affiliations_malformed_llm_output(llm_params):

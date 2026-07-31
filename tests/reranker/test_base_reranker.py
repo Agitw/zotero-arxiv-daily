@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from zotero_arxiv_daily.reranker.base import BaseReranker, apply_venue_weights, get_reranker_cls
+from zotero_arxiv_daily.reranker.base import BaseReranker, apply_venue_bonuses, get_reranker_cls
 from tests.canned_responses import make_sample_paper, make_sample_corpus
 
 
@@ -70,39 +70,69 @@ def test_get_reranker_cls_unknown():
         get_reranker_cls("nonexistent_reranker_xyz")
 
 
-def test_apply_venue_weights_boosts_high_impact_journals_and_resorts():
-    ordinary = make_sample_paper(title="Ordinary", venue="Ordinary Journal", score=5.0)
+def test_apply_venue_bonuses_requires_successful_relevant_deepseek_score_and_resorts():
+    ordinary = make_sample_paper(title="Ordinary", venue="Ordinary Journal", score=7.5)
     high_impact = make_sample_paper(
         title="High impact",
         venue="Nature Machine Intelligence",
-        score=4.0,
+        score=7.0,
+        deepseek_score=6.0,
+        score_source="deepseek",
     )
 
-    ranked = apply_venue_weights(
+    ranked = apply_venue_bonuses(
         [ordinary, high_impact],
-        {"Nature Machine Intelligence": 1.5},
+        {"Nature Machine Intelligence": 0.8},
     )
 
     assert ranked == [high_impact, ordinary]
-    assert high_impact.score == 6.0
-    assert ordinary.score == 5.0
-    assert "Nature Machine Intelligence ×1.50" in high_impact.recommendation_reason
+    assert high_impact.score == pytest.approx(7.8)
+    assert ordinary.score == 7.5
+    assert "Nature Machine Intelligence +0.80" in high_impact.recommendation_reason
 
 
-def test_apply_venue_weights_prefers_issn_over_journal_name_fallback():
+def test_apply_venue_bonuses_rejects_low_scoring_or_fallback_papers():
+    low_relevance = make_sample_paper(
+        title="Low relevance",
+        venue="Nature Machine Intelligence",
+        score=7.0,
+        deepseek_score=5.9,
+        score_source="deepseek",
+    )
+    fallback = make_sample_paper(
+        title="Fallback",
+        venue="Nature Machine Intelligence",
+        score=8.0,
+        deepseek_score=None,
+        score_source="embedding_fallback",
+    )
+
+    ranked = apply_venue_bonuses(
+        [fallback, low_relevance],
+        {"Nature Machine Intelligence": 0.8},
+    )
+
+    assert ranked == [fallback, low_relevance]
+    assert low_relevance.score == 7.0
+    assert fallback.score == 8.0
+
+
+def test_apply_venue_bonuses_prefers_issn_over_journal_name_fallback():
     paper = make_sample_paper(
         venue="Publisher display name",
         venue_issns=["2522-5839"],
         score=4.0,
+        deepseek_score=8.0,
+        score_source="deepseek",
     )
 
-    apply_venue_weights(
+    apply_venue_bonuses(
         [paper],
         {
-            "2522-5839": 1.5,
-            "Publisher display name": 1.1,
+            "2522-5839": 0.8,
+            "Publisher display name": 0.3,
         },
     )
 
-    assert paper.score == 6.0
-    assert "Publisher display name ×1.50" in paper.recommendation_reason
+    assert paper.score == pytest.approx(4.8)
+    assert "Publisher display name +0.80" in paper.recommendation_reason

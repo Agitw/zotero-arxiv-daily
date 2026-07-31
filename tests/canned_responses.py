@@ -10,9 +10,18 @@ from zotero_arxiv_daily.protocol import CorpusPaper, Paper
 # OpenAI client stub
 # ---------------------------------------------------------------------------
 
-_AFFILIATION_MARKER = "You are an assistant who perfectly extracts affiliations"
-_AFFILIATION_RESPONSE = '["TsingHua University","Peking University"]'
-_TLDR_RESPONSE = "Hello! How can I assist you today?"
+_AFFILIATION_MARKER = "You extract first-author and corresponding-author affiliations"
+_AFFILIATION_RESPONSE = (
+    '{"first_affiliation":"TsingHua University",'
+    '"corresponding_affiliations":["Peking University"]}'
+)
+_TLDR_RESPONSE = (
+    '{"research_problem":"Widget stability is poorly understood.",'
+    '"solution_approach":"The study combines modeling and experiments.",'
+    '"core_method":"A constrained graph model is introduced.",'
+    '"key_results":"The abstract reports improved stability.",'
+    '"main_conclusion":"The method supports robust widget design."}'
+)
 
 
 def _make_chat_response(content: str) -> SimpleNamespace:

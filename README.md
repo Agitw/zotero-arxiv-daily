@@ -134,14 +134,17 @@ llm:
     base_url: ??? # API URL of your LLM API. Example: https://api.openai.com/v1
   generation_kwargs:
   # Arguments for the LLM API. See [here](https://platform.openai.com/docs/api-reference/chat/create) for more details.
-    max_tokens: 16384
+    max_tokens: 768
     model: ???
+  affiliation_generation_kwargs:
+    max_tokens: 128
   language: English # Preferred language for the TL;DR. Example: English
 
 reranker:
-  # Optional journal multipliers. ISSNs are authoritative; names are a fallback.
-  venue_weights:
-    "2522-5839": 1.5 # Nature Machine Intelligence
+  # Optional additive journal bonuses. ISSNs are authoritative; names are a fallback.
+  venue_bonus_min_deepseek_score: 6.0
+  venue_bonuses:
+    "2522-5839": 0.8 # Nature Machine Intelligence
   local:
     model: jinaai/jina-embeddings-v5-text-nano # The Hugging Face model name of the local embedding model. Example: jinaai/jina-embeddings-v5-text-nano
     encode_kwargs:
@@ -154,10 +157,14 @@ reranker:
     model: null # The model name of the embedding model. Example: text-embedding-3-large
     batch_size: null # The batch size for embedding API requests. Adjust to match your provider's limit. Example: 64
   hybrid_llm:
-    llm_candidate_num: 60
-    llm_global_candidate_num: 50
-    llm_high_impact_candidate_num: 10
+    llm_candidate_num: 100
+    llm_global_candidate_num: 70
+    llm_high_impact_candidate_num: 30
     llm_high_impact_min_score: 0.20
+    evidence_per_candidate: 5
+    max_abstract_chars: 700
+    max_evidence_abstract_chars: 500
+    deepseek_score_weight: 0.7
 
 executor:
   debug: false # Whether to use debug mode. Example: true
@@ -178,7 +185,7 @@ That's all! Now you can test the workflow by manually triggering it:
 
 Then check the log and the receiver email after it finishes.
 
-By default, the main workflow runs on 22:00 UTC everyday. You can change this time by editting the workflow config `.github/workflows/main.yml`.
+The main workflow is scheduled for 00:50 UTC (08:50 Asia/Shanghai) every day. GitHub Actions cron starts are best-effort and may be delayed. You can change the schedule in `.github/workflows/main.yml`.
 
 ### Local Running
 Supported by [uv](https://github.com/astral-sh/uv), this workflow can easily run on your local device if uv is installed:
@@ -199,19 +206,21 @@ This project is in active development. You can subscribe this repo via `Watch` s
 ## 📖 How it works
 *Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration uses a 14-day overlapping OpenAlex window so papers delayed by indexing or abstract availability can still be found. A 60-day recommendation history removes papers already sent before reranking.
 
-The hybrid reranker embeds every unseen candidate. Within its 60-paper LLM budget it first selects the global embedding top 50, then reserves up to 10 slots for configured high-impact journals whose embedding relevance is at least `0.20`, and fills any unused slots globally. These reserve slots guarantee evaluation, not email exposure.
+The hybrid reranker embeds every unseen candidate. Within its 100-paper LLM budget it first selects the global embedding top 70, then reserves up to 30 slots for configured high-impact journals whose embedding relevance is at least `0.20`, and fills any unused slots globally. These reserve slots guarantee evaluation, not email exposure. Papers are scored in independent batches of 10; a failed batch falls back to embedding relevance without disabling successful or later batches.
 
-The final ranking score is:
+For a successfully scored paper, blended relevance is `0.7 * DeepSeek score + 0.3 * embedding score`. Unscored and failed-batch papers use their embedding score. The final ranking score is:
 
-`final score = max(0, relevance score * venue weight + feedback adjustment)`
+`final score = max(0, blended relevance + eligible venue bonus + feedback adjustment)`
 
-- `relevance score` is on a 0–10 scale. For the embedding rerankers it is `10 * sum(similarity_i * decay_i)`, where `decay_i = raw_decay_i / sum(raw_decay)` and `raw_decay_i = 1 / (1 + log10(i + 1))`; the newest Zotero paper has `i = 0`. LLM rerankers also return a 0–10 relevance score.
-- `venue weight` defaults to `1.0`. OpenAlex ISSNs are matched first; an exact case-insensitive venue name remains a compatibility fallback. The repository configuration uses `1.30`–`1.50` for selected high-impact journals.
+- Both DeepSeek and embedding relevance are on a 0–10 scale.
+- A venue bonus is allowed only when the paper was actually scored by DeepSeek and its DeepSeek relevance is at least `6.0`. OpenAlex ISSNs are matched first; an exact case-insensitive venue name remains a fallback. Configured bonuses are `+0.80`, `+0.60`, `+0.45`, or `+0.30`.
 - `feedback adjustment` is the existing additive preference/feedback score, such as positive keywords or explicit likes and dislikes.
 
-For example, a Nature Machine Intelligence paper with relevance `6.4`, venue weight `1.50`, and a `+1.2` feedback adjustment receives `max(0, 6.4 * 1.50 + 1.2) = 10.8`. An unrelated paper scoring `2.0` only rises to `3.0`, so journal prestige cannot by itself overcome a strongly relevant ordinary paper. Venue weighting happens after semantic reranking and before the final `max_paper_num` cut. If `rerank_candidate_num` is configured, that earlier candidate limit is applied first; the repository default leaves it unset.
+For example, a Nature Machine Intelligence paper with embedding relevance `7.0` and DeepSeek relevance `8.0` receives blended relevance `7.7` and the `+0.80` venue bonus, for `8.5` before feedback. A failed-batch paper receives no venue bonus, even if it is from the same journal. Venue bonuses are applied before the final `max_paper_num` cut. If `rerank_candidate_num` is configured, that earlier candidate limit is applied first; the repository default leaves it unset.
 
-Every run incrementally writes `outputs/recommendation-funnel.json` with per-paper and per-venue counts, LLM selection reasons, and ranks before and after venue weighting. GitHub Actions uploads this report as an artifact and restores recommendation history on the next run. History is recorded only after email delivery succeeds; previews and failed sends do not suppress papers from future runs.
+Every run incrementally writes `outputs/recommendation-funnel.json` with separate selected, attempted, scored, and fallback counts plus per-paper embedding scores, DeepSeek scores, score sources, venue bonuses, and rank changes. GitHub Actions uploads this report as an artifact and restores recommendation history on the next run. History is recorded only after email delivery succeeds; previews and failed sends do not suppress papers from future runs.
+
+Each emailed paper is summarized from its title and retrieved abstract only. The 768-token response budget is organized into five fixed fields: research problem, solution approach, core method, key results, and main conclusion. Missing abstract details are shown as “摘要未说明”; malformed output is handled locally without a second LLM repair call. Affiliation extraction uses a separate 128-token budget and keeps only the first-author and corresponding-author institutions when the available paper preview identifies them.
 
 ## 📌 Limitations
 - The recommendation algorithm is very simple, it may not accurately reflect your interest. Welcome better ideas for improving the algorithm!
