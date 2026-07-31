@@ -1,6 +1,6 @@
 import requests
 from .base import BaseRetriever, register_retriever
-from ..protocol import Paper
+from ..protocol import Paper, format_affiliations
 from loguru import logger
 from typing import Any
 from time import sleep
@@ -52,6 +52,7 @@ class BiorxivRetriever(BaseRetriever):
         abstract = raw_paper['abstract']
         pdf_url = f"https://www.{self.server}.org/content/{raw_paper['doi']}v{raw_paper['version']}.full.pdf"
         full_text = None # biorxiv forbids scraping its pdf
+        corresponding_institution = raw_paper.get("author_corresponding_institution")
         return Paper(
             source=self.name,
             title=title,
@@ -60,6 +61,7 @@ class BiorxivRetriever(BaseRetriever):
             url=pdf_url,
             pdf_url=pdf_url,
             full_text=full_text,
+            affiliations=format_affiliations(None, [corresponding_institution]),
             venue=f"{self.server_label()}: {raw_paper.get('category', 'unknown')}",
             published_date=raw_paper.get("date"),
         )

@@ -2,8 +2,8 @@ name: Send emails daily
 on:
   workflow_dispatch:
   schedule:
-    # 08:50 Asia/Shanghai daily to avoid top-of-hour congestion and target a ~09:00 start.
-    - cron: '50 0 * * *'
+    # 06:00 Asia/Shanghai daily (22:00 UTC on the previous calendar day).
+    - cron: '0 22 * * *'
 
 permissions:
   contents: read

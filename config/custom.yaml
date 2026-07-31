@@ -82,6 +82,7 @@ executor:
   source: ['arxiv','biorxiv','openalex']
   rerank_candidate_num: null
   max_paper_num: 30
+  include_all_deepseek_score_at_least: 8.0
   recommendation_history_path: .cache/recommendation-history.json
   recommendation_history_days: 60
   recommendation_funnel_path: outputs/recommendation-funnel.json

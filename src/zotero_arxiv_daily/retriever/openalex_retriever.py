@@ -6,7 +6,7 @@ import requests
 from loguru import logger
 
 from .base import BaseRetriever, register_retriever
-from ..protocol import Paper
+from ..protocol import Paper, format_affiliations
 
 
 def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
@@ -17,6 +17,14 @@ def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
         for position in positions:
             words_by_position[position] = word
     return " ".join(words_by_position[position] for position in sorted(words_by_position))
+
+
+def primary_institution(authorship: dict[str, Any]) -> str | None:
+    for institution in authorship.get("institutions") or []:
+        name = str(institution.get("display_name") or "").strip()
+        if name:
+            return name
+    return None
 
 
 @register_retriever("openalex")
@@ -135,11 +143,19 @@ class OpenAlexRetriever(BaseRetriever):
             logger.warning(f"Skipping OpenAlex work without abstract: {raw_paper.get('id')}")
             return None
         primary_location = raw_paper.get("primary_location") or {}
+        authorships = raw_paper.get("authorships", [])
         authors = [
             authorship.get("author", {}).get("display_name", "")
-            for authorship in raw_paper.get("authorships", [])
+            for authorship in authorships
         ]
         authors = [author for author in authors if author]
+        first_affiliation = primary_institution(authorships[0]) if authorships else None
+        corresponding_affiliations = [
+            institution
+            for authorship in authorships
+            if authorship.get("is_corresponding")
+            if (institution := primary_institution(authorship))
+        ]
         url = primary_location.get("landing_page_url") or raw_paper.get("doi") or raw_paper.get("id")
         venue_source = primary_location.get("source") or {}
         venue = venue_source.get("display_name")
@@ -154,6 +170,7 @@ class OpenAlexRetriever(BaseRetriever):
             url=url,
             pdf_url=primary_location.get("pdf_url"),
             full_text=None,
+            affiliations=format_affiliations(first_affiliation, corresponding_affiliations),
             venue=venue,
             published_date=raw_paper.get("publication_date"),
             doi=raw_paper.get("doi"),

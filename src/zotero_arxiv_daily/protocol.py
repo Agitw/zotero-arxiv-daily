@@ -53,6 +53,27 @@ def format_structured_tldr(text: str | None) -> str:
     return "\n".join(lines)
 
 
+def format_affiliations(
+    first_affiliation: str | None,
+    corresponding_affiliations: list[str] | None,
+) -> list[str] | None:
+    first = str(first_affiliation or "").strip()
+    corresponding = []
+    for value in corresponding_affiliations or []:
+        affiliation = str(value or "").strip()
+        if affiliation and affiliation not in corresponding:
+            corresponding.append(affiliation)
+    if first and corresponding == [first]:
+        return [f"第一及通讯单位：{first}"]
+    result = [f"第一单位：{first}"] if first else []
+    result.extend(
+        f"通讯单位：{affiliation}"
+        for affiliation in corresponding
+        if affiliation != first
+    )
+    return result or None
+
+
 @dataclass
 class Paper:
     source: str
@@ -178,22 +199,14 @@ class Paper:
             corresponding_value = data.get("corresponding_affiliations") or []
             if isinstance(corresponding_value, str):
                 corresponding_value = [corresponding_value]
-            corresponding = []
-            for value in corresponding_value if isinstance(corresponding_value, list) else []:
-                affiliation = str(value).strip()
-                if affiliation and affiliation not in corresponding:
-                    corresponding.append(affiliation)
-            if first and corresponding == [first]:
-                return [f"第一及通讯单位：{first}"]
-            result = [f"第一单位：{first}"] if first else []
-            result.extend(
-                f"通讯单位：{affiliation}"
-                for affiliation in corresponding
-                if affiliation != first
+            return format_affiliations(
+                first,
+                corresponding_value if isinstance(corresponding_value, list) else [],
             )
-            return result or None
     
     def generate_affiliations(self, openai_client:OpenAI,llm_params:dict) -> Optional[list[str]]:
+        if self.affiliations:
+            return self.affiliations
         try:
             affiliations = self._generate_affiliations_with_llm(openai_client,llm_params)
             self.affiliations = affiliations
