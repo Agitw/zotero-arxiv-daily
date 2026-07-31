@@ -34,12 +34,15 @@ llm:
     base_url: ??? # API URL of your LLM API. Example: https://api.openai.com/v1
   generation_kwargs:
   # Arguments for the LLM API. See [here](https://platform.openai.com/docs/api-reference/chat/create) for more details.
-    max_tokens: 16384
+    max_tokens: 768
     model: ???
+  affiliation_generation_kwargs:
+    max_tokens: 128 # Affiliations are short structured output and do not need the TLDR budget.
   language: English # Preferred language for the TL;DR. Example: English
 
 reranker:
-  venue_weights: {} # Optional ISSN multipliers applied after relevance scoring; journal names remain a fallback. Example: {"2522-5839": 1.5}
+  venue_bonuses: {} # Optional additive ISSN bonuses after successful DeepSeek scoring; journal names remain a fallback. Example: {"2522-5839": 0.8}
+  venue_bonus_min_deepseek_score: 6.0 # Venue bonuses require at least this 0-10 DeepSeek relevance score.
   local:
     model: jinaai/jina-embeddings-v5-text-nano-retrieval # The Hugging Face model name of the local embedding model. Example: jinaai/jina-embeddings-v5-text-nano
     encode_kwargs:
@@ -64,17 +67,21 @@ reranker:
     embedding_model: BAAI/bge-small-en-v1.5 # Embedding model used for all-Zotero recall.
     cache_path: .cache/zotero-corpus-embeddings.json # Weekly corpus embedding cache path restored by GitHub Actions cache.
     cache_build_batch_size: 128 # Corpus embeddings to encode before checkpointing cache progress. Example: 128
-    llm_candidate_num: null # Only the top N embedding candidates are sent to the LLM for final scoring. Set null to score all candidates. Example: 60
-    llm_global_candidate_num: 50 # Highest embedding-ranked candidates guaranteed LLM scoring within llm_candidate_num.
-    llm_high_impact_candidate_num: 10 # Remaining LLM slots reserved for configured high-impact journals.
+    llm_candidate_num: 100 # Only the top N embedding candidates are sent to the LLM for final scoring.
+    llm_global_candidate_num: 70 # Highest embedding-ranked candidates guaranteed LLM scoring within llm_candidate_num.
+    llm_high_impact_candidate_num: 30 # Remaining LLM slots reserved for configured high-impact journals.
     llm_high_impact_min_score: 0.20 # Minimum embedding relevance for a high-impact reserve candidate.
-    evidence_per_candidate: 25 # Zotero evidence papers passed to the LLM per candidate. Example: 25
-    candidate_batch_size: 5 # Candidate papers scored per LLM request. Example: 5
-    max_abstract_chars: 1200 # Max characters per abstract included in LLM prompts. Example: 1200
+    evidence_per_candidate: 5 # Most relevant Zotero evidence papers passed to the LLM per candidate.
+    candidate_batch_size: 10 # Candidate papers scored per LLM request.
+    max_abstract_chars: 700 # Max characters per candidate abstract included in LLM prompts.
+    max_evidence_abstract_chars: 500 # Max characters per Zotero evidence abstract included in LLM prompts.
+    deepseek_score_weight: 0.7 # Blend successful DeepSeek relevance with embedding relevance; embedding uses the remainder.
     llm_retry_attempts: 2 # Retry attempts for transient LLM scoring failures before falling back to embedding scores.
     llm_retry_initial_seconds: 10 # Initial retry delay for transient LLM scoring failures.
     llm_retry_max_seconds: 60 # Maximum retry delay for transient LLM scoring failures.
     llm_timeout_seconds: 60 # Per-request timeout for LLM scoring.
+    generation_kwargs:
+      max_tokens: 128 # Scoring returns only one compact JSON score array.
     encode_kwargs:
       normalize_embeddings: true
 

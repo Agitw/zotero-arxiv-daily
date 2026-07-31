@@ -13,12 +13,44 @@ def is_chinese_language(language: str | None) -> bool:
     return str(language or "").lower() in {"chinese", "zh", "zh-cn", "中文"}
 
 
-def contains_cjk(text: str | None) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+TLDR_FIELDS = (
+    ("research_problem", "研究问题"),
+    ("solution_approach", "解决思路"),
+    ("core_method", "核心方法"),
+    ("key_results", "关键结果"),
+    ("main_conclusion", "主要结论"),
+)
+TLDR_MISSING = "摘要未说明"
 
 
-def chinese_tldr_unavailable_message() -> str:
-    return "摘要生成暂不可用，请打开论文链接查看原文。"
+def _json_object_from_text(text: str | None) -> dict:
+    match = re.search(r"\{.*\}", text or "", flags=re.DOTALL)
+    if match is None:
+        return {}
+    try:
+        value = json.loads(match.group(0))
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def format_structured_tldr(text: str | None) -> str:
+    data = _json_object_from_text(text)
+    if not data:
+        for _, label in TLDR_FIELDS:
+            match = re.search(
+                rf"(?:^|\n)\s*(?:[-*]\s*)?{re.escape(label)}[：:]\s*(.+)",
+                text or "",
+            )
+            if match:
+                data[label] = match.group(1).strip()
+    lines = []
+    for key, label in TLDR_FIELDS:
+        value = data.get(key, data.get(label, TLDR_MISSING))
+        if not isinstance(value, str) or not value.strip():
+            value = TLDR_MISSING
+        lines.append(f"{label}：{value.strip()}")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -41,31 +73,39 @@ class Paper:
     external_id: Optional[str] = None
     venue_issns: Optional[list[str]] = None
     llm_selection_reason: Optional[str] = None
+    embedding_score: Optional[float] = None
+    deepseek_score: Optional[float] = None
+    score_source: Optional[str] = None
+    llm_scoring_attempted: bool = False
+    llm_scoring_succeeded: bool = False
+    venue_bonus: float = 0.0
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
         use_chinese = is_chinese_language(lang)
         if use_chinese:
             prompt = (
-                "请根据以下论文信息生成中文速览。\n"
-                "使用 3-4 个简短要点，优先覆盖：一句话结论、关键发现、方法或模型、为什么值得看。"
-                "每个要点单独一行，并以“- ”开头。"
-                "不要写成一整段。避免夸张表述，内容要具体对应论文。\n\n"
+                "请只根据以下标题和摘要整理中文论文解读。不得根据常识补全摘要没有提供的信息。\n"
+                "返回一个 JSON 对象且不要添加其他文字，必须包含以下字符串字段："
+                "research_problem（研究问题）、solution_approach（解决思路）、"
+                "core_method（核心方法）、key_results（关键结果）、"
+                "main_conclusion（主要结论）。"
+                "每项使用 1-2 句；若摘要没有提供对应信息，字段值必须写“摘要未说明”。\n\n"
             )
             system_prompt = (
-                "你是一个擅长快速阅读科研论文的中文助手。请始终用中文回答，"
-                "用 3-4 个简短要点概括论文的核心信息，并帮助科研读者快速判断是否值得打开原文。"
+                "你是严谨的科研论文解读助手。只依据提供的标题和摘要，用中文返回指定 JSON。"
             )
         else:
             prompt = (
-                f"Given the following information of a paper, generate a TLDR in {lang}.\n"
-                "Use 3-4 concise bullet points covering: the core problem, method or model, "
-                "key result, and why it matters to the user's research. Avoid hype and keep "
-                "the summary specific to the paper.\n\n"
+                f"Use only the title and abstract to summarize this paper in {lang}. "
+                "Do not infer facts absent from the abstract. Return one JSON object with "
+                "the string fields research_problem, solution_approach, core_method, "
+                "key_results, and main_conclusion. Use '摘要未说明' when the abstract "
+                "does not provide a field. Return JSON only.\n\n"
             )
             system_prompt = (
-                "You are an assistant who perfectly summarizes scientific paper, and gives "
-                f"the core idea of the paper to the user. Your answer should be in {lang}."
+                "You are a precise scientific paper analyst. Return only the requested JSON "
+                f"in {lang}."
             )
         if self.title:
             prompt += f"Title:\n {self.title}\n\n"
@@ -73,12 +113,9 @@ class Paper:
         if self.abstract:
             prompt += f"Abstract: {self.abstract}\n\n"
 
-        if self.full_text:
-            prompt += f"Preview of main content:\n {self.full_text}\n\n"
-
-        if not self.full_text and not self.abstract:
-            logger.warning(f"Neither full text nor abstract is provided for {self.url}")
-            return "Failed to generate TLDR. Neither full text nor abstract is provided"
+        if not self.abstract:
+            logger.warning(f"No abstract is provided for {self.url}")
+            return "Failed to generate TLDR. No abstract is provided"
         
         # use gpt-4o tokenizer for estimation
         enc = tiktoken.encoding_for_model("gpt-4o")
@@ -96,35 +133,7 @@ class Paper:
             ],
             **llm_params.get('generation_kwargs', {})
         )
-        tldr = response.choices[0].message.content
-        if use_chinese and not contains_cjk(tldr):
-            tldr = self._rewrite_tldr_in_chinese(openai_client, llm_params, tldr)
-        return tldr
-
-    def _rewrite_tldr_in_chinese(self, openai_client: OpenAI, llm_params: dict, tldr: str) -> str:
-        response = openai_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "你是科研论文速览助手。请只用中文回答，不要保留英文整句。",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "请将以下 TLDR 改写为中文，保留具体科研含义。"
-                        "必须使用 3-4 个简短要点，每个要点单独一行，并以“- ”开头。"
-                        "优先覆盖：一句话结论、关键发现、方法或模型、为什么值得看。"
-                        "不要写成一整段：\n\n"
-                        f"{tldr}"
-                    ),
-                },
-            ],
-            **llm_params.get('generation_kwargs', {})
-        )
-        rewritten = response.choices[0].message.content or ""
-        if not contains_cjk(rewritten):
-            return chinese_tldr_unavailable_message()
-        return rewritten
+        return format_structured_tldr(response.choices[0].message.content)
     
     def generate_tldr(self, openai_client:OpenAI,llm_params:dict) -> str:
         try:
@@ -133,39 +142,56 @@ class Paper:
             return tldr
         except Exception as e:
             logger.warning(f"Failed to generate tldr of {self.url}: {e}")
-            if is_chinese_language(llm_params.get("language")):
-                tldr = chinese_tldr_unavailable_message()
-            else:
-                tldr = self.abstract
+            tldr = format_structured_tldr(None)
             self.tldr = tldr
             return tldr
 
     def _generate_affiliations_with_llm(self, openai_client:OpenAI,llm_params:dict) -> Optional[list[str]]:
         if self.full_text is not None:
-            prompt = f"Given the beginning of a paper, extract the affiliations of the authors in a python list format, which is sorted by the author order. If there is no affiliation found, return an empty list '[]':\n\n{self.full_text}"
+            prompt = (
+                "From the beginning of this paper, extract only the first author's primary "
+                "affiliation and the corresponding author's primary affiliation(s). Return "
+                "JSON only with this shape: "
+                '{"first_affiliation":"", "corresponding_affiliations":[]}. '
+                "Do not infer an affiliation that is not explicitly present.\n\n"
+                f"{self.full_text}"
+            )
             # use gpt-4o tokenizer for estimation
             enc = tiktoken.encoding_for_model("gpt-4o")
             prompt_tokens = enc.encode(prompt)
             prompt_tokens = prompt_tokens[:2000]  # truncate to 2000 tokens
             prompt = enc.decode(prompt_tokens)
+            generation_kwargs = dict(llm_params.get('generation_kwargs', {}))
+            generation_kwargs.update(llm_params.get('affiliation_generation_kwargs', {}))
             affiliations = openai_client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an assistant who perfectly extracts affiliations of authors from a paper. You should return a python list of affiliations sorted by the author order, like [\"TsingHua University\",\"Peking University\"]. If an affiliation is consisted of multi-level affiliations, like 'Department of Computer Science, TsingHua University', you should return the top-level affiliation 'TsingHua University' only. Do not contain duplicated affiliations. If there is no affiliation found, you should return an empty list [ ]. You should only return the final list of affiliations, and do not return any intermediate results.",
+                        "content": "You extract first-author and corresponding-author affiliations and return JSON only.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                **llm_params.get('generation_kwargs', {})
+                **generation_kwargs
             )
-            affiliations = affiliations.choices[0].message.content
-
-            affiliations = re.search(r'\[.*?\]', affiliations, flags=re.DOTALL).group(0)
-            affiliations = json.loads(affiliations)
-            affiliations = list(set(affiliations))
-            affiliations = [str(a) for a in affiliations]
-
-            return affiliations
+            data = _json_object_from_text(affiliations.choices[0].message.content)
+            first = str(data.get("first_affiliation") or "").strip()
+            corresponding_value = data.get("corresponding_affiliations") or []
+            if isinstance(corresponding_value, str):
+                corresponding_value = [corresponding_value]
+            corresponding = []
+            for value in corresponding_value if isinstance(corresponding_value, list) else []:
+                affiliation = str(value).strip()
+                if affiliation and affiliation not in corresponding:
+                    corresponding.append(affiliation)
+            if first and corresponding == [first]:
+                return [f"第一及通讯单位：{first}"]
+            result = [f"第一单位：{first}"] if first else []
+            result.extend(
+                f"通讯单位：{affiliation}"
+                for affiliation in corresponding
+                if affiliation != first
+            )
+            return result or None
     
     def generate_affiliations(self, openai_client:OpenAI,llm_params:dict) -> Optional[list[str]]:
         try:

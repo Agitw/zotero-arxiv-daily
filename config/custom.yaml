@@ -24,8 +24,10 @@ llm:
     key: ${oc.env:OPENAI_API_KEY}
     base_url: ${oc.env:OPENAI_BASE_URL,${oc.env:OPENAI_API_BASE,''}}
   generation_kwargs:
-    max_tokens: 1024
+    max_tokens: 768
     model: deepseek-v4-flash
+  affiliation_generation_kwargs:
+    max_tokens: 128
   language: Chinese
 
 source:
@@ -91,29 +93,34 @@ executor:
   reranker: hybrid_llm
 
 reranker:
-  # Final score = max(0, relevance score * venue weight + feedback adjustment).
-  venue_weights:
-    "2522-5839": 1.50 # Nature Machine Intelligence
-    "1548-7091": 1.50 # Nature Methods
-    "1087-0156": 1.50 # Nature Biotechnology
-    "2662-8457": 1.40 # Nature Computational Science
-    "2374-7943": 1.40 # ACS Central Science
-    "2041-6539": 1.35 # Chemical Science
-    "1474-760X": 1.35 # Genome Biology
-    "0305-1048": 1.35 # Nucleic Acids Research
-    "1467-5463": 1.30 # Briefings in Bioinformatics
-    "1088-9051": 1.30 # Genome Research
-    "2050-084X": 1.30 # eLife
-    "1744-4292": 1.30 # Molecular Systems Biology
+  # Final score = max(0, blended relevance + eligible venue bonus + feedback adjustment).
+  venue_bonus_min_deepseek_score: 6.0
+  venue_bonuses:
+    "2522-5839": 0.80 # Nature Machine Intelligence
+    "1548-7091": 0.80 # Nature Methods
+    "1087-0156": 0.80 # Nature Biotechnology
+    "2662-8457": 0.60 # Nature Computational Science
+    "2374-7943": 0.60 # ACS Central Science
+    "2041-6539": 0.45 # Chemical Science
+    "1474-760X": 0.45 # Genome Biology
+    "0305-1048": 0.45 # Nucleic Acids Research
+    "1467-5463": 0.30 # Briefings in Bioinformatics
+    "1088-9051": 0.30 # Genome Research
+    "2050-084X": 0.30 # eLife
+    "1744-4292": 0.30 # Molecular Systems Biology
   hybrid_llm:
     model: deepseek-v4-flash
     embedding_model: BAAI/bge-small-en-v1.5
     cache_path: .cache/zotero-corpus-embeddings.json
     cache_build_batch_size: 128
-    llm_candidate_num: 60
-    evidence_per_candidate: 8
+    llm_candidate_num: 100
+    llm_global_candidate_num: 70
+    llm_high_impact_candidate_num: 30
+    evidence_per_candidate: 5
     candidate_batch_size: 10
     max_abstract_chars: 700
+    max_evidence_abstract_chars: 500
+    deepseek_score_weight: 0.7
     generation_kwargs:
       max_tokens: 128
     encode_kwargs:

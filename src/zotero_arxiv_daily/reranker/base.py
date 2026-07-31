@@ -6,50 +6,56 @@ import numpy as np
 from typing import Type
 
 
-def get_venue_weight(
+def get_venue_bonus(
     paper: Paper,
-    venue_weights: Mapping[str, float] | None,
+    venue_bonuses: Mapping[str, float] | None,
 ) -> float:
-    if not venue_weights:
-        return 1.0
-    normalized_weights = {
-        str(key).strip().casefold(): float(weight)
-        for key, weight in venue_weights.items()
+    if not venue_bonuses:
+        return 0.0
+    normalized_bonuses = {
+        str(key).strip().casefold(): float(bonus)
+        for key, bonus in venue_bonuses.items()
     }
-    issn_weights = [
-        normalized_weights[issn.strip().casefold()]
+    issn_bonuses = [
+        normalized_bonuses[issn.strip().casefold()]
         for issn in paper.venue_issns or []
-        if issn.strip().casefold() in normalized_weights
+        if issn.strip().casefold() in normalized_bonuses
     ]
-    if issn_weights:
-        return max(issn_weights)
+    if issn_bonuses:
+        return max(issn_bonuses)
     venue = (paper.venue or "").strip().casefold()
-    return normalized_weights.get(venue, 1.0)
+    return normalized_bonuses.get(venue, 0.0)
 
 
-def apply_venue_weights(
+def apply_venue_bonuses(
     papers: list[Paper],
-    venue_weights: Mapping[str, float] | None,
+    venue_bonuses: Mapping[str, float] | None,
+    minimum_deepseek_score: float = 6.0,
 ) -> list[Paper]:
-    """Multiply relevance scores by configured journal weights and re-sort."""
-    if not venue_weights:
+    """Add a capped journal bonus only after a sufficiently relevant DeepSeek score."""
+    if not venue_bonuses:
         return papers
 
     adjusted = False
     for paper in papers:
-        venue = (paper.venue or "").strip()
-        weight = get_venue_weight(paper, venue_weights)
-        if weight == 1.0:
+        paper.venue_bonus = 0.0
+        if paper.score_source != "deepseek":
             continue
-        paper.score = (paper.score or 0.0) * weight
-        reason = f"高影响力期刊权重：{venue} ×{weight:.2f}"
+        if paper.deepseek_score is None or paper.deepseek_score < minimum_deepseek_score:
+            continue
+        venue = (paper.venue or "").strip()
+        bonus = get_venue_bonus(paper, venue_bonuses)
+        if bonus <= 0.0:
+            continue
+        paper.score = (paper.score or 0.0) + bonus
+        paper.venue_bonus = bonus
+        reason = f"高影响力期刊加分：{venue} +{bonus:.2f}"
         paper.recommendation_reason = (
             f"{paper.recommendation_reason}；{reason}"
             if paper.recommendation_reason
             else reason
         )
         adjusted = True
-
     if not adjusted:
         return papers
     return sorted(papers, key=lambda paper: paper.score or 0.0, reverse=True)

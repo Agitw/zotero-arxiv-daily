@@ -85,6 +85,25 @@ def test_render_email_preserves_chinese_tldr_bullet_lines():
     assert "- 核心问题：解释深度学习理论。<br>- 方法模型：统一近似、优化和泛化视角。" in html
 
 
+def test_render_email_formats_five_summary_sections_for_scanning():
+    paper = make_sample_paper(
+        score=8.0,
+        tldr=(
+            "研究问题：现有模型难以处理构象变化。\n"
+            "解决思路：联合学习结构与动力学。\n"
+            "核心方法：提出图神经网络。\n"
+            "关键结果：摘要报告性能提升。\n"
+            "主要结论：该方法改善了构象建模。"
+        ),
+    )
+
+    html = render_email([paper])
+
+    for label in ["研究问题", "解决思路", "核心方法", "关键结果", "主要结论"]:
+        assert f"<strong>{label}：</strong>" in html
+    assert html.count('class="summary-section"') == 5
+
+
 def test_render_email_escapes_tldr_html_so_summary_content_is_not_swallowed():
     paper = make_sample_paper(
         score=8.0,

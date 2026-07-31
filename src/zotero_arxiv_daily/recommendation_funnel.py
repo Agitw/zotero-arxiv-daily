@@ -18,6 +18,15 @@ class RecommendationFunnel:
         self.venues: dict[str, dict] = {}
         self._papers: dict[str, dict] = {}
         self.failure: dict[str, str] | None = None
+        self.llm_batches: list[dict] = []
+        self.llm_usage: dict[str, int] = {
+            "batch_count": 0,
+            "successful_batches": 0,
+            "fallback_batches": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
     def observe(self, stage: str, papers: list[Paper]) -> None:
         self.stage_totals[stage] = len(papers)
@@ -46,10 +55,22 @@ class RecommendationFunnel:
                     "venue": paper.venue,
                     "venue_issns": list(paper.venue_issns or []),
                     "llm_selection_reason": paper.llm_selection_reason,
+                    "embedding_score": paper.embedding_score,
+                    "deepseek_score": paper.deepseek_score,
+                    "score_source": paper.score_source,
+                    "llm_scoring_attempted": paper.llm_scoring_attempted,
+                    "llm_scoring_succeeded": paper.llm_scoring_succeeded,
+                    "venue_bonus": paper.venue_bonus,
                     "stages": {},
                 },
             )
             tracked["llm_selection_reason"] = paper.llm_selection_reason
+            tracked["embedding_score"] = paper.embedding_score
+            tracked["deepseek_score"] = paper.deepseek_score
+            tracked["score_source"] = paper.score_source
+            tracked["llm_scoring_attempted"] = paper.llm_scoring_attempted
+            tracked["llm_scoring_succeeded"] = paper.llm_scoring_succeeded
+            tracked["venue_bonus"] = paper.venue_bonus
             tracked["stages"][stage] = {
                 "rank": rank,
                 "score": float(paper.score) if paper.score is not None else None,
@@ -68,12 +89,26 @@ class RecommendationFunnel:
         logger.error(f"Recommendation pipeline failed: {type(error).__name__}: {error}")
         self.write()
 
+    def record_llm_batches(self, batches: list[dict]) -> None:
+        self.llm_batches = [dict(batch) for batch in batches]
+        self.llm_usage = {
+            "batch_count": len(batches),
+            "successful_batches": sum(batch.get("status") == "success" for batch in batches),
+            "fallback_batches": sum(batch.get("status") == "fallback" for batch in batches),
+            "prompt_tokens": sum(int(batch.get("prompt_tokens") or 0) for batch in batches),
+            "completion_tokens": sum(int(batch.get("completion_tokens") or 0) for batch in batches),
+            "total_tokens": sum(int(batch.get("total_tokens") or 0) for batch in batches),
+        }
+        self.write()
+
     def as_dict(self) -> dict:
         report = {
             "generated_at": self.generated_at,
             "stage_totals": self.stage_totals,
             "venues": self.venues,
             "papers": list(self._papers.values()),
+            "llm_batches": self.llm_batches,
+            "llm_usage": self.llm_usage,
         }
         if self.failure is not None:
             report["failure"] = self.failure

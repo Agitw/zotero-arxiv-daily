@@ -8,7 +8,7 @@ from loguru import logger
 from openai import OpenAI
 from omegaconf import OmegaConf
 
-from .base import BaseReranker, get_venue_weight, register_reranker
+from .base import BaseReranker, get_venue_bonus, register_reranker
 from .llm import _as_plain_dict, _extract_scores
 from ..protocol import CorpusPaper, Paper
 
@@ -39,6 +39,10 @@ class HybridLlmReranker(BaseReranker):
         self.client = None
         self.embedding_client = self._make_embedding_client()
         self.llm_scoring_disabled = False
+        self.llm_scoring_degraded = False
+        self.llm_batch_metrics: list[dict] = []
+        self._last_llm_usage: dict[str, int | None] = {}
+        self._last_llm_request_attempts = 0
 
     @staticmethod
     def corpus_key(paper: CorpusPaper) -> str:
@@ -53,12 +57,14 @@ class HybridLlmReranker(BaseReranker):
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def rerank(self, candidates: list[Paper], corpus: list[CorpusPaper]) -> list[Paper]:
+        self.llm_scoring_degraded = False
+        self.llm_batch_metrics = []
         corpus = sorted(corpus, key=lambda paper: paper.added_date, reverse=True)
         corpus_embeddings = self.prepare_corpus_embeddings(corpus)
         candidate_embeddings = np.array(self.embedding_client.encode([paper.abstract for paper in candidates]))
         corpus_embedding_array = np.array(corpus_embeddings)
         sim = self._cosine_similarity(candidate_embeddings, corpus_embedding_array)
-        evidence_per_candidate = int(self.hybrid_config.get("evidence_per_candidate") or 20)
+        evidence_per_candidate = int(self.hybrid_config.get("evidence_per_candidate") or 5)
         evidence_indices_by_candidate = [
             np.argsort(sim[candidate_idx])[::-1][:evidence_per_candidate]
             for candidate_idx in range(len(candidates))
@@ -69,6 +75,11 @@ class HybridLlmReranker(BaseReranker):
         ]
         for candidate_idx, (paper, score) in enumerate(zip(candidates, embedding_scores)):
             paper.score = score * 10
+            paper.embedding_score = score * 10
+            paper.deepseek_score = None
+            paper.score_source = "embedding"
+            paper.llm_scoring_attempted = False
+            paper.llm_scoring_succeeded = False
             evidence = [corpus[idx] for idx in evidence_indices_by_candidate[candidate_idx]]
             paper.matched_zotero_titles = [item.title for item in evidence[:3] if item.title]
             paper.recommendation_reason = self._build_recommendation_reason(
@@ -83,8 +94,12 @@ class HybridLlmReranker(BaseReranker):
                 f"of {len(candidates)} embedding-ranked candidates"
             )
 
-        candidate_batch_size = int(self.hybrid_config.get("candidate_batch_size") or 5)
+        candidate_batch_size = int(self.hybrid_config.get("candidate_batch_size") or 10)
         for start in range(0, len(llm_candidate_indices), candidate_batch_size):
+            batch_started = time.perf_counter()
+            batch_error = None
+            self._last_llm_usage = {}
+            self._last_llm_request_attempts = 0
             batch_indices = llm_candidate_indices[start : start + candidate_batch_size]
             batch = [candidates[idx] for idx in batch_indices]
             batch_evidence = []
@@ -95,19 +110,48 @@ class HybridLlmReranker(BaseReranker):
                 batch_embedding_scores.append(embedding_scores[candidate_idx])
             if self.llm_scoring_disabled:
                 scores = batch_embedding_scores
+                batch_succeeded = False
             else:
                 try:
                     scores = self._score_candidate_batch(batch, batch_evidence)
+                    batch_succeeded = True
                 except Exception as exc:
                     if not self._is_recoverable_llm_scoring_error(exc):
                         raise
-                    self.llm_scoring_disabled = True
+                    self.llm_scoring_degraded = True
+                    batch_succeeded = False
+                    batch_error = f"{type(exc).__name__}: {exc}"
                     logger.warning(
-                        f"DeepSeek scoring failed; using embedding scores for this run: {exc}"
+                        f"DeepSeek scoring failed for one batch; using embedding scores for that batch: {exc}"
                     )
                     scores = batch_embedding_scores
-            for paper, score in zip(batch, scores):
-                paper.score = score * 10
+            deepseek_weight = float(self.hybrid_config.get("deepseek_score_weight") or 0.7)
+            for paper, score, embedding_score in zip(batch, scores, batch_embedding_scores):
+                paper.llm_scoring_attempted = True
+                if not batch_succeeded:
+                    paper.score = embedding_score * 10
+                    paper.score_source = "embedding_fallback"
+                    continue
+                paper.deepseek_score = score * 10
+                paper.score = (
+                    deepseek_weight * paper.deepseek_score
+                    + (1.0 - deepseek_weight) * embedding_score * 10
+                )
+                paper.score_source = "deepseek"
+                paper.llm_scoring_succeeded = True
+            self.llm_batch_metrics.append(
+                {
+                    "batch_number": len(self.llm_batch_metrics) + 1,
+                    "candidate_count": len(batch),
+                    "status": "success" if batch_succeeded else "fallback",
+                    "duration_seconds": round(time.perf_counter() - batch_started, 3),
+                    "request_attempts": self._last_llm_request_attempts,
+                    "prompt_tokens": self._last_llm_usage.get("prompt_tokens"),
+                    "completion_tokens": self._last_llm_usage.get("completion_tokens"),
+                    "total_tokens": self._last_llm_usage.get("total_tokens"),
+                    "error": batch_error,
+                }
+            )
         return sorted(candidates, key=lambda paper: paper.score or 0.0, reverse=True)
 
     def select_llm_candidate_indices(
@@ -137,7 +181,7 @@ class HybridLlmReranker(BaseReranker):
         global_limit = limit if global_config is None else min(limit, max(0, int(global_config)))
         reserve_limit = max(0, int(self.hybrid_config.get("llm_high_impact_candidate_num") or 0))
         minimum_score = float(self.hybrid_config.get("llm_high_impact_min_score") or 0.0)
-        venue_weights = self.config.reranker.get("venue_weights")
+        venue_bonuses = self.config.reranker.get("venue_bonuses")
 
         selected = ranked[:global_limit]
         selected_set = set(selected)
@@ -150,7 +194,7 @@ class HybridLlmReranker(BaseReranker):
             if idx not in selected_set
             and np.isfinite(embedding_scores[idx])
             and embedding_scores[idx] >= minimum_score
-            and get_venue_weight(candidates[idx], venue_weights) > 1.0
+            and get_venue_bonus(candidates[idx], venue_bonuses) > 0.0
         ][:reserve_limit]
         for idx in reserve_candidates:
             selected.append(idx)
@@ -246,12 +290,18 @@ class HybridLlmReranker(BaseReranker):
             {"role": "user", "content": prompt},
         ]
         response = self._create_chat_completion_with_retry(messages, params)
+        usage = getattr(response, "usage", None)
+        self._last_llm_usage = {
+            key: self._usage_value(usage, key)
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
         content = response.choices[0].message.content or ""
         return _extract_scores(content, len(candidates))
 
     def _create_chat_completion_with_retry(self, messages: list[dict], params: dict):
         attempts = int(self.hybrid_config.get("llm_retry_attempts") or 3)
         for attempt in range(attempts):
+            self._last_llm_request_attempts = attempt + 1
             try:
                 return self.client.chat.completions.create(messages=messages, **params)
             except Exception as exc:
@@ -263,6 +313,13 @@ class HybridLlmReranker(BaseReranker):
                 )
                 time.sleep(delay)
         raise RuntimeError("unreachable")
+
+    @staticmethod
+    def _usage_value(usage, key: str) -> int | None:
+        if usage is None:
+            return None
+        value = usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+        return int(value) if value is not None else None
 
     @staticmethod
     def _is_retryable_llm_error(exc: Exception) -> bool:
@@ -317,7 +374,14 @@ class HybridLlmReranker(BaseReranker):
         )
 
     def _trim(self, text: str) -> str:
-        max_chars = int(self.hybrid_config.get("max_abstract_chars") or 1200)
+        max_chars = int(self.hybrid_config.get("max_abstract_chars") or 700)
+        return text[:max_chars]
+
+    def _trim_evidence(self, text: str) -> str:
+        max_chars = int(
+            self.hybrid_config.get("max_evidence_abstract_chars")
+            or 500
+        )
         return text[:max_chars]
 
     def _build_prompt(
@@ -325,21 +389,38 @@ class HybridLlmReranker(BaseReranker):
         candidates: list[Paper],
         evidence_by_candidate: list[list[CorpusPaper]],
     ) -> str:
+        evidence_ids: dict[str, str] = {}
+        evidence_catalog: list[str] = []
+        evidence_refs_by_candidate: list[list[str]] = []
+        for evidence in evidence_by_candidate:
+            refs = []
+            for paper in evidence:
+                key = self.corpus_key(paper)
+                if key not in evidence_ids:
+                    evidence_id = f"E{len(evidence_ids) + 1}"
+                    evidence_ids[key] = evidence_id
+                    evidence_catalog.append(
+                        f"[{evidence_id}] {paper.title}: {self._trim_evidence(paper.abstract)}"
+                    )
+                refs.append(evidence_ids[key])
+            evidence_refs_by_candidate.append(refs)
+
         sections = []
-        for idx, (candidate, evidence) in enumerate(zip(candidates, evidence_by_candidate), start=1):
-            evidence_text = "\n".join(
-                f"- {paper.title}: {self._trim(paper.abstract)}"
-                for paper in evidence
-            )
+        for idx, (candidate, evidence_refs) in enumerate(
+            zip(candidates, evidence_refs_by_candidate), start=1
+        ):
             sections.append(
                 f"{idx}. Candidate title: {candidate.title}\n"
                 f"Candidate abstract: {self._trim(candidate.abstract)}\n"
-                f"Most relevant Zotero evidence:\n{evidence_text}"
+                f"Relevant evidence IDs: {', '.join(evidence_refs)}"
             )
         return (
             "Score each candidate paper from 0.0 to 1.0 for relevance to the user's Zotero library.\n"
             "Use the retrieved Zotero evidence. Penalize broad field-only overlap.\n"
             "Return exactly this JSON shape and no other text: {\"scores\": [0.0, 0.0]}\n\n"
+            "Zotero evidence library:\n"
+            + "\n".join(evidence_catalog)
+            + "\n\nCandidates:\n"
             + "\n\n".join(sections)
         )
 

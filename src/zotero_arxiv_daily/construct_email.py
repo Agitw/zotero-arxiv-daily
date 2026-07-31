@@ -1,4 +1,4 @@
-from .protocol import Paper
+from .protocol import Paper, TLDR_FIELDS
 import hashlib
 import hmac
 from html import escape
@@ -58,8 +58,20 @@ def get_empty_html():
 
 
 def format_tldr_html(tldr: str | None) -> str:
-    escaped = escape(tldr or "")
-    return escaped.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+    normalized = (tldr or "").replace("\r\n", "\n").replace("\r", "\n")
+    labels = {label for _, label in TLDR_FIELDS}
+    rendered = []
+    for line in normalized.split("\n"):
+        label, separator, value = line.partition("：")
+        if separator and label.strip() in labels:
+            rendered.append(
+                '<div class="summary-section" style="padding: 4px 0;">'
+                f"<strong>{escape(label.strip())}：</strong>{escape(value.strip())}"
+                "</div>"
+            )
+        else:
+            rendered.append(escape(line))
+    return "<br>".join(rendered)
 
 
 def get_feedback_html(
