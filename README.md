@@ -205,7 +205,7 @@ This project is in active development. You can subscribe this repo via `Watch` s
 
 
 ## 📖 How it works
-*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration requests a one-day OpenAlex window and applies a final Shanghai-time date filter, so emailed papers must be published today or yesterday; this prevents delayed source feeds from surfacing older papers. A 60-day recommendation history removes papers already sent before reranking.
+*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration requests an OpenAlex window covering today and yesterday, then applies a final Shanghai-time date filter, so emailed papers must be published today or yesterday; this prevents delayed source feeds from surfacing older papers. A 60-day recommendation history removes papers already sent before reranking.
 
 The hybrid reranker embeds every unseen candidate. Within its 100-paper LLM budget it first selects the global embedding top 70, then reserves up to 30 slots for configured high-impact journals whose embedding relevance is at least `0.20`, and fills any unused slots globally. These reserve slots guarantee evaluation, not email exposure. Papers are scored in independent batches of 10; a failed batch falls back to embedding relevance without disabling successful or later batches.
 
