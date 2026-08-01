@@ -171,6 +171,7 @@ executor:
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
   include_all_deepseek_score_at_least: null # Also email every successful DeepSeek score at or above this 0-10 threshold. Example: 8.0
+  published_date_lookback_days: 1 # Only email papers published today or this many previous local calendar days.
   recommendation_history_path: .cache/recommendation-history.json
   recommendation_history_days: 60
   recommendation_funnel_path: outputs/recommendation-funnel.json
@@ -205,7 +206,7 @@ This project is in active development. You can subscribe this repo via `Watch` s
 
 
 ## 📖 How it works
-*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration uses a 14-day overlapping OpenAlex window so papers delayed by indexing or abstract availability can still be found. A 60-day recommendation history removes papers already sent before reranking.
+*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration requests a one-day OpenAlex window and applies a final Shanghai-time date filter, so emailed papers must be published today or yesterday; this prevents delayed source feeds from surfacing older papers. A 60-day recommendation history removes papers already sent before reranking.
 
 The hybrid reranker embeds every unseen candidate. Within its 100-paper LLM budget it first selects the global embedding top 70, then reserves up to 30 slots for configured high-impact journals whose embedding relevance is at least `0.20`, and fills any unused slots globally. These reserve slots guarantee evaluation, not email exposure. Papers are scored in independent batches of 10; a failed batch falls back to embedding relevance without disabling successful or later batches.
 

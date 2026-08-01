@@ -8,8 +8,9 @@ from omegaconf import OmegaConf
 def test_openalex_journal_sources_keep_curated_high_impact_journals(config):
     issns = set(config.source.openalex.issns)
 
-    assert config.source.openalex.days == 14
+    assert config.source.openalex.days == 1
     assert config.source.openalex.max_results == 3000
+    assert config.executor.published_date_lookback_days == 1
     assert len(issns) == 31
     assert "2522-5839" in issns  # Nature Machine Intelligence
     assert "1759-0876" in issns  # WIREs Computational Molecular Science

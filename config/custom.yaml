@@ -37,7 +37,7 @@ source:
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
   openalex:
-    days: 14
+    days: 1
     per_page: 200
     max_results: 3000
     mailto: null
@@ -83,6 +83,7 @@ executor:
   rerank_candidate_num: null
   max_paper_num: 30
   include_all_deepseek_score_at_least: 8.0
+  published_date_lookback_days: 1
   recommendation_history_path: .cache/recommendation-history.json
   recommendation_history_days: 60
   recommendation_funnel_path: outputs/recommendation-funnel.json
