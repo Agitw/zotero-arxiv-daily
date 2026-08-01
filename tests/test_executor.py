@@ -443,11 +443,13 @@ def test_filter_recent_papers_keeps_only_shanghai_today_and_previous_day():
         make_sample_paper(title="Too old", published_date="2026-07-30"),
         make_sample_paper(title="Future", published_date="2026-08-02"),
         make_sample_paper(title="Missing date", published_date=None),
+        make_sample_paper(title="Shanghai timestamp", published_date="2026-07-31T16:30:00+00:00"),
+        make_sample_paper(title="Malformed date", published_date="2026-08-01junk"),
     ]
 
     filtered = filter_recent_papers(papers, now=now)
 
-    assert [paper.title for paper in filtered] == ["Today", "Yesterday"]
+    assert [paper.title for paper in filtered] == ["Today", "Yesterday", "Shanghai timestamp"]
 
 
 def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit(

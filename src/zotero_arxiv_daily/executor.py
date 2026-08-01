@@ -53,7 +53,13 @@ def _published_date_as_date(value: str | None) -> date | None:
     if not value:
         return None
     try:
-        return date.fromisoformat(str(value)[:10])
+        raw_value = str(value).strip()
+        if len(raw_value) == 10:
+            return date.fromisoformat(raw_value)
+        published_at = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        if published_at.tzinfo is None:
+            return published_at.date()
+        return published_at.astimezone(SHANGHAI_TIMEZONE).date()
     except (TypeError, ValueError):
         return None
 
