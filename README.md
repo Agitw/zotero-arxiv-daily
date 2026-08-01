@@ -171,7 +171,6 @@ executor:
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
   include_all_deepseek_score_at_least: null # Also email every successful DeepSeek score at or above this 0-10 threshold. Example: 8.0
-  published_date_lookback_days: 1 # Only email papers published today or this many previous local calendar days.
   recommendation_history_path: .cache/recommendation-history.json
   recommendation_history_days: 60
   recommendation_funnel_path: outputs/recommendation-funnel.json

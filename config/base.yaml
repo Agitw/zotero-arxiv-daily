@@ -92,7 +92,6 @@ executor:
   email_preview_path: null # Optional path to write rendered email HTML before sending. Example: outputs/latest.html
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
   include_all_deepseek_score_at_least: null # Also include every successfully DeepSeek-scored paper at or above this 0-10 score. Example: 8.0
-  published_date_lookback_days: 1 # Only email papers published today or this many previous local calendar days.
   rerank_candidate_num: null # Optional number of retrieved papers passed into the reranker. Example: 50
   recommendation_history_path: null # JSON state used to suppress already-sent papers across overlapping retrieval windows.
   recommendation_history_days: 60 # Number of days to retain sent-paper identities.

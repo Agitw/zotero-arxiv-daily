@@ -1,12 +1,16 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from time import sleep
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from loguru import logger
 
 from .base import BaseRetriever, register_retriever
 from ..protocol import Paper, format_affiliations
+
+
+SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
@@ -39,7 +43,7 @@ class OpenAlexRetriever(BaseRetriever):
 
     def _retrieve_raw_papers(self) -> list[dict[str, Any]]:
         days = int(self.retriever_config.get("days") or 1)
-        until_date = datetime.now(UTC).date()
+        until_date = datetime.now(SHANGHAI_TIMEZONE).date()
         from_date = until_date - timedelta(days=days)
         per_page = int(self.retriever_config.get("per_page") or 200)
         max_results = int(self.retriever_config.get("max_results") or 500)

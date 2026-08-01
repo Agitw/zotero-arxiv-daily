@@ -61,13 +61,12 @@ def _published_date_as_date(value: str | None) -> date | None:
 def filter_recent_papers(
     papers: list,
     now: datetime | None = None,
-    lookback_days: int = 1,
 ) -> list:
     current_time = now or datetime.now(SHANGHAI_TIMEZONE)
     if current_time.tzinfo is None:
         current_time = current_time.replace(tzinfo=SHANGHAI_TIMEZONE)
     local_today = current_time.astimezone(SHANGHAI_TIMEZONE).date()
-    earliest_date = local_today - timedelta(days=max(0, int(lookback_days)))
+    earliest_date = local_today - timedelta(days=1)
     filtered = []
     dropped = 0
     for paper in papers:
@@ -206,7 +205,6 @@ class Executor:
         funnel.observe("retrieved", all_papers)
         all_papers = filter_recent_papers(
             all_papers,
-            lookback_days=int(self.config.executor.get("published_date_lookback_days") or 1),
         )
         funnel.observe("date_filtered", all_papers)
         history_path = self.config.executor.get("recommendation_history_path")

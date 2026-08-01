@@ -144,6 +144,34 @@ def test_openalex_retriever_batches_multiple_issns_in_one_request(config, monkey
     assert "locations.source.issn:1549-9618|1549-9596|1758-2946" in calls[0][1]["filter"]
 
 
+def test_openalex_retriever_uses_shanghai_calendar_date_for_window(config, monkeypatch):
+    from datetime import UTC, datetime
+
+    calls = []
+    instant = datetime(2026, 7, 31, 16, 30, tzinfo=UTC)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    def _get(url, params=None, timeout=None):
+        calls.append(params)
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"results": [], "meta": {"next_cursor": None}},
+        )
+
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.datetime", FrozenDateTime)
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.requests.get", _get)
+    with open_dict(config.source):
+        config.source.openalex = {"issns": ["1549-9618"], "days": 1, "per_page": 25}
+
+    OpenAlexRetriever(config).retrieve_papers()
+
+    assert "to_publication_date:2026-08-01" in calls[0]["filter"]
+
+
 def test_openalex_retriever_skips_openalex_when_rate_limited(config, monkeypatch):
     def _get(url, params=None, timeout=None):
         response = SimpleNamespace(status_code=429, headers={})
