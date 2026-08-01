@@ -429,6 +429,29 @@ def test_run_limits_rerank_candidates_and_summarizes_final_top_papers(config, mo
     assert summarized[-1] == "Paper 30"
 
 
+def test_filter_recent_papers_keeps_only_shanghai_today_and_previous_day():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from tests.canned_responses import make_sample_paper
+    from zotero_arxiv_daily.executor import filter_recent_papers
+
+    now = datetime(2026, 8, 1, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    papers = [
+        make_sample_paper(title="Today", published_date="2026-08-01"),
+        make_sample_paper(title="Yesterday", published_date="2026-07-31"),
+        make_sample_paper(title="Too old", published_date="2026-07-30"),
+        make_sample_paper(title="Future", published_date="2026-08-02"),
+        make_sample_paper(title="Missing date", published_date=None),
+        make_sample_paper(title="Shanghai timestamp", published_date="2026-07-31T16:30:00+00:00"),
+        make_sample_paper(title="Malformed date", published_date="2026-08-01junk"),
+    ]
+
+    filtered = filter_recent_papers(papers, now=now)
+
+    assert [paper.title for paper in filtered] == ["Today", "Yesterday", "Shanghai timestamp"]
+
+
 def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit(
     config, monkeypatch
 ):
@@ -555,6 +578,7 @@ def test_run_filters_recommendation_history_and_records_only_emailed_papers(conf
     report = json.loads(funnel_path.read_text(encoding="utf-8"))
     assert report["stage_totals"] == {
         "retrieved": 3,
+        "date_filtered": 3,
         "unseen": 2,
         "rerank_candidates": 2,
         "semantic_ranked": 2,

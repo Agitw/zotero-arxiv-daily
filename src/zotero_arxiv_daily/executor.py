@@ -9,7 +9,7 @@ from .recommendation_history import RecommendationHistory
 from .zotero_local import fetch_local_zotero_corpus
 from .feedback import FeedbackProfile, apply_feedback, fetch_github_issue_feedback, load_feedback_profile
 import random
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from .reranker import get_reranker_cls
 from .reranker.base import apply_venue_bonuses
@@ -17,6 +17,10 @@ from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
 from tqdm import tqdm
+from zoneinfo import ZoneInfo
+
+
+SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -43,6 +47,46 @@ def as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _published_date_as_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        raw_value = str(value).strip()
+        if len(raw_value) == 10:
+            return date.fromisoformat(raw_value)
+        published_at = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        if published_at.tzinfo is None:
+            return published_at.date()
+        return published_at.astimezone(SHANGHAI_TIMEZONE).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_recent_papers(
+    papers: list,
+    now: datetime | None = None,
+) -> list:
+    current_time = now or datetime.now(SHANGHAI_TIMEZONE)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=SHANGHAI_TIMEZONE)
+    local_today = current_time.astimezone(SHANGHAI_TIMEZONE).date()
+    earliest_date = local_today - timedelta(days=1)
+    filtered = []
+    dropped = 0
+    for paper in papers:
+        published_date = _published_date_as_date(paper.published_date)
+        if published_date is None or not (earliest_date <= published_date <= local_today):
+            dropped += 1
+            continue
+        filtered.append(paper)
+    if dropped:
+        logger.info(
+            f"Date filter kept {len(filtered)} papers published from {earliest_date} "
+            f"through {local_today}; dropped {dropped} papers outside that range"
+        )
+    return filtered
 
 
 def select_papers_for_email(
@@ -165,6 +209,10 @@ class Executor:
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
         funnel.observe("retrieved", all_papers)
+        all_papers = filter_recent_papers(
+            all_papers,
+        )
+        funnel.observe("date_filtered", all_papers)
         history_path = self.config.executor.get("recommendation_history_path")
         recommendation_history = None
         if history_path:

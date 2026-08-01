@@ -37,7 +37,7 @@ source:
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
   openalex:
-    days: 14
+    days: 1
     per_page: 200
     max_results: 3000
     mailto: null

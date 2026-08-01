@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from zotero_arxiv_daily.protocol import CorpusPaper, Paper
 
@@ -184,6 +185,7 @@ def make_sample_paper(**overrides) -> Paper:
         full_text="\\begin{document} Some text. \\end{document}",
         tldr=None,
         affiliations=None,
+        published_date=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),
         score=None,
     )
     defaults.update(overrides)

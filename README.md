@@ -182,7 +182,7 @@ That's all! Now you can test the workflow by manually triggering it:
 ![test](./assets/test.png)
 
 > [!NOTE]
-> The Test-Workflow Action is the debug version of the main workflow (Send-emails-daily), which always retrieve 5 arxiv papers regardless of the date. While the main workflow will be automatically triggered everyday and retrieve new papers released yesterday. There is no new arxiv paper at weekends and holiday, in which case you may see "No new papers found" in the log of main workflow.
+> The Test-Workflow Action is the debug version of the main workflow (Send-emails-daily), which always retrieve 5 arxiv papers regardless of the date. While the main workflow will be automatically triggered everyday and retrieve new arxiv papers released today or yesterday. There is no new arxiv paper at weekends and holiday, in which case you may see "No new papers found" in the log of main workflow.
 
 Then check the log and the receiver email after it finishes.
 
@@ -205,7 +205,7 @@ This project is in active development. You can subscribe this repo via `Watch` s
 
 
 ## 📖 How it works
-*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration uses a 14-day overlapping OpenAlex window so papers delayed by indexing or abstract availability can still be found. A 60-day recommendation history removes papers already sent before reranking.
+*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration requests an OpenAlex window covering today and yesterday, then applies a final Shanghai-time date filter, so emailed papers must be published today or yesterday; this prevents delayed source feeds from surfacing older papers. A 60-day recommendation history removes papers already sent before reranking.
 
 The hybrid reranker embeds every unseen candidate. Within its 100-paper LLM budget it first selects the global embedding top 70, then reserves up to 30 slots for configured high-impact journals whose embedding relevance is at least `0.20`, and fills any unused slots globally. These reserve slots guarantee evaluation, not email exposure. Papers are scored in independent batches of 10; a failed batch falls back to embedding relevance without disabling successful or later batches.
 
