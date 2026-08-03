@@ -8,6 +8,7 @@ from loguru import logger
 
 from .base import BaseRetriever, register_retriever
 from ..protocol import Paper, format_affiliations
+from ..publication_window import earliest_allowed_publication_date
 
 
 SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -44,7 +45,9 @@ class OpenAlexRetriever(BaseRetriever):
     def _retrieve_raw_papers(self) -> list[dict[str, Any]]:
         days = int(self.retriever_config.get("days") or 1)
         until_date = datetime.now(SHANGHAI_TIMEZONE).date()
-        from_date = until_date - timedelta(days=days)
+        configured_from_date = until_date - timedelta(days=days)
+        grace_from_date = earliest_allowed_publication_date(until_date)
+        from_date = min(configured_from_date, grace_from_date)
         per_page = int(self.retriever_config.get("per_page") or 200)
         max_results = int(self.retriever_config.get("max_results") or 500)
         mailto = self.retriever_config.get("mailto")

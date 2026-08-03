@@ -1,9 +1,17 @@
+from datetime import datetime
+from time import sleep
+from typing import Any
+from zoneinfo import ZoneInfo
+
 import requests
+from loguru import logger
+
 from .base import BaseRetriever, register_retriever
 from ..protocol import Paper, format_affiliations
-from loguru import logger
-from typing import Any
-from time import sleep
+from ..publication_window import earliest_allowed_publication_date
+
+
+SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 @register_retriever("biorxiv")
 class BiorxivRetriever(BaseRetriever):
@@ -15,7 +23,10 @@ class BiorxivRetriever(BaseRetriever):
             raise ValueError(f"category must be specified for {self.name}")
 
     def _retrieve_raw_papers(self) -> list[dict[str, Any]]:
-        api_url = f"https://api.biorxiv.org/details/{self.server}/2d"
+        local_today = datetime.now(SHANGHAI_TIMEZONE).date()
+        earliest_date = earliest_allowed_publication_date(local_today)
+        lookback_days = max(2, (local_today - earliest_date).days)
+        api_url = f"https://api.biorxiv.org/details/{self.server}/{lookback_days}d"
         retry_num = 10
         delay_time = 10
         for i in range(retry_num):

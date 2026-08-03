@@ -37,6 +37,8 @@ source:
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
   openalex:
+    # This is the normal minimum lookback; the retriever automatically extends
+    # it for weekends/Chinese holidays before the final Shanghai-time filter.
     days: 1
     per_page: 200
     max_results: 3000

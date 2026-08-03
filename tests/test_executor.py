@@ -452,6 +452,49 @@ def test_filter_recent_papers_keeps_only_shanghai_today_and_previous_day():
     assert [paper.title for paper in filtered] == ["Today", "Yesterday", "Shanghai timestamp"]
 
 
+def test_filter_recent_papers_allows_saturday_on_monday():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from tests.canned_responses import make_sample_paper
+    from zotero_arxiv_daily.executor import filter_recent_papers
+
+    now = datetime(2026, 8, 3, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    papers = [
+        make_sample_paper(title="Saturday", published_date="2026-08-01"),
+        make_sample_paper(title="Friday", published_date="2026-07-31"),
+        make_sample_paper(title="Monday", published_date="2026-08-03"),
+    ]
+
+    filtered = filter_recent_papers(papers, now=now, holiday_dates=set())
+
+    assert [paper.title for paper in filtered] == ["Saturday", "Monday"]
+
+
+def test_filter_recent_papers_walks_back_to_workday_after_holiday():
+    from datetime import datetime, date
+    from zoneinfo import ZoneInfo
+
+    from tests.canned_responses import make_sample_paper
+    from zotero_arxiv_daily.executor import filter_recent_papers
+
+    now = datetime(2026, 8, 4, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    papers = [
+        make_sample_paper(title="Last workday", published_date="2026-07-31"),
+        make_sample_paper(title="Holiday", published_date="2026-08-03"),
+        make_sample_paper(title="Today", published_date="2026-08-04"),
+        make_sample_paper(title="Too old", published_date="2026-07-30"),
+    ]
+
+    filtered = filter_recent_papers(
+        papers,
+        now=now,
+        holiday_dates={date(2026, 8, 3)},
+    )
+
+    assert [paper.title for paper in filtered] == ["Last workday", "Holiday", "Today"]
+
+
 def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit(
     config, monkeypatch
 ):

@@ -9,7 +9,7 @@ from .recommendation_history import RecommendationHistory
 from .zotero_local import fetch_local_zotero_corpus
 from .feedback import FeedbackProfile, apply_feedback, fetch_github_issue_feedback, load_feedback_profile
 import random
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from .reranker import get_reranker_cls
 from .reranker.base import apply_venue_bonuses
@@ -18,6 +18,7 @@ from .utils import send_email
 from openai import OpenAI
 from tqdm import tqdm
 from zoneinfo import ZoneInfo
+from .publication_window import earliest_allowed_publication_date
 
 
 SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -67,12 +68,13 @@ def _published_date_as_date(value: str | None) -> date | None:
 def filter_recent_papers(
     papers: list,
     now: datetime | None = None,
+    holiday_dates: set[date] | frozenset[date] | None = None,
 ) -> list:
     current_time = now or datetime.now(SHANGHAI_TIMEZONE)
     if current_time.tzinfo is None:
         current_time = current_time.replace(tzinfo=SHANGHAI_TIMEZONE)
     local_today = current_time.astimezone(SHANGHAI_TIMEZONE).date()
-    earliest_date = local_today - timedelta(days=1)
+    earliest_date = earliest_allowed_publication_date(local_today, holiday_dates)
     filtered = []
     dropped = 0
     for paper in papers:
