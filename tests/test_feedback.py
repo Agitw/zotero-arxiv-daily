@@ -1,6 +1,7 @@
 """Tests for feedback-based recommendation adjustments."""
 
 import json
+from pathlib import Path
 
 from tests.canned_responses import make_sample_paper
 from zotero_arxiv_daily.feedback import (
@@ -88,6 +89,34 @@ def test_load_feedback_profile_reads_json_file(tmp_path):
 
     assert profile.positive_keywords == ["protein design"]
     assert profile.paper_feedback == {"https://example.org/a": "read"}
+
+
+def test_curated_research_keywords_boost_both_topics_without_generic_protein_matches():
+    profile_path = Path(__file__).parent.parent / "config" / "feedback.json"
+    profile = load_feedback_profile(profile_path)
+    ensemble = make_sample_paper(
+        title="Macromolecular ensemble representation learning",
+        abstract="Learning a representation of protein conformational ensembles.",
+        score=7.0,
+    )
+    mutation = make_sample_paper(
+        title="Predicting functional effects of variants",
+        abstract="Deep mutational scanning of protein sequences.",
+        score=7.0,
+    )
+    generic = make_sample_paper(
+        title="Protein structure and mutation mechanisms",
+        abstract="We study protein structure and mutation mechanisms.",
+        score=7.0,
+    )
+
+    apply_feedback([generic, ensemble, mutation], profile)
+
+    assert ensemble.score > generic.score
+    assert mutation.score > generic.score
+    assert generic.score == 7.0
+    assert "关键词" in ensemble.recommendation_reason
+    assert "关键词" in mutation.recommendation_reason
 
 
 def test_fetch_github_issue_feedback_reads_json_payloads(monkeypatch):

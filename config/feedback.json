@@ -1,6 +1,26 @@
 {
   "paper_feedback": {},
-  "positive_keywords": [],
+  "positive_keywords": [
+    "macromolecular ensemble",
+    "macromolecular conformational ensemble",
+    "protein conformational ensemble",
+    "protein ensemble representation",
+    "conformational ensemble representation",
+    "ensemble representation learning",
+    "protein dynamics representation learning",
+    "大分子系综",
+    "蛋白质构象系综",
+    "protein mutation effect prediction",
+    "protein variant effect prediction",
+    "variant effect prediction",
+    "mutational effect prediction",
+    "functional effects of mutations",
+    "functional effects of variants",
+    "deep mutational scanning",
+    "protein fitness landscape",
+    "蛋白质突变功能预测",
+    "蛋白质变异效应预测"
+  ],
   "negative_keywords": [],
   "preferred_venues": [],
   "blocked_venues": []
