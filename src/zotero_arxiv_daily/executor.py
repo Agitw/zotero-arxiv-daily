@@ -3,6 +3,7 @@ from pyzotero import zotero
 from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
+from .retriever.base import SourceRetrievalError
 from .protocol import CorpusPaper
 from .recommendation_funnel import RecommendationFunnel
 from .recommendation_history import RecommendationHistory
@@ -19,6 +20,8 @@ from openai import OpenAI
 from tqdm import tqdm
 from zoneinfo import ZoneInfo
 from .publication_window import earliest_allowed_publication_date
+import arxiv
+import requests
 
 
 SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -201,9 +204,22 @@ class Executor:
             logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
             return
         all_papers = []
+        failed_sources = []
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
-            papers = retriever.retrieve_papers()
+            try:
+                papers = retriever.retrieve_papers()
+            except (
+                SourceRetrievalError,
+                requests.RequestException,
+                arxiv.HTTPError,
+                arxiv.UnexpectedEmptyPageError,
+            ) as exc:
+                failed_sources.append(source)
+                funnel.record_source(source, 0, error=exc)
+                logger.warning(f"Skipping unavailable source {source}: {type(exc).__name__}: {exc}")
+                continue
+            funnel.record_source(source, len(papers), warnings=getattr(retriever, "retrieval_warnings", []))
             if len(papers) == 0:
                 logger.info(f"No {source} papers found")
                 continue
@@ -211,6 +227,10 @@ class Executor:
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
         funnel.observe("retrieved", all_papers)
+        if failed_sources and len(failed_sources) == len(self.retrievers):
+            raise SourceRetrievalError(f"All paper sources failed: {', '.join(failed_sources)}")
+        if failed_sources:
+            logger.warning(f"Continuing with available sources; failed sources: {', '.join(failed_sources)}")
         all_papers = filter_recent_papers(
             all_papers,
         )

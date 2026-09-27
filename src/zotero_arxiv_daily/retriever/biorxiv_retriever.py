@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import requests
 from loguru import logger
 
-from .base import BaseRetriever, register_retriever
+from .base import BaseRetriever, SourceRetrievalError, register_retriever
 from ..protocol import Paper, format_affiliations
 from ..publication_window import earliest_allowed_publication_date
 
@@ -27,23 +27,29 @@ class BiorxivRetriever(BaseRetriever):
         earliest_date = earliest_allowed_publication_date(local_today)
         lookback_days = max(2, (local_today - earliest_date).days)
         api_url = f"https://api.biorxiv.org/details/{self.server}/{lookback_days}d"
-        retry_num = 10
+        retry_num = 3
         delay_time = 10
         for i in range(retry_num):
             try:
-                response = requests.get(api_url)
+                response = requests.get(api_url, timeout=(10, 60))
                 response.raise_for_status()
+                result = response.json()
+                if not isinstance(result, dict) or not isinstance(result.get("collection"), list):
+                    raise ValueError(f"{self.server_label()} API response has no collection list")
                 break
-            except Exception as e:
+            except (requests.RequestException, ValueError) as e:
                 if i == retry_num - 1:
-                    raise e
+                    raise SourceRetrievalError(
+                        f"{self.server_label()} retrieval failed after {retry_num} attempts: "
+                        f"{type(e).__name__}: {e}"
+                    ) from e
                 else:
-                    logger.warning(f"Failed to retrieve papers: {str(e)}. Retry in {delay_time} seconds.")
-                    sleep(delay_time)
-        result = response.json()
+                    wait = delay_time * (i + 1)
+                    logger.warning(f"{self.server_label()} retrieval failed: {type(e).__name__}: {e}. Retry in {wait} seconds.")
+                    sleep(wait)
         collection = result['collection']
         if len(collection) == 0:
-            logger.warning(f"No paper found. API Message: {result['messages']}")
+            logger.warning(f"No paper found. API Message: {result.get('messages')}")
             return []
         categories = [c.lower() for c in self.retriever_config.category]
         collection = [c for c in collection if c['category'].lower() in categories]

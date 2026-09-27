@@ -7,6 +7,10 @@ from time import sleep
 from loguru import logger
 
 
+class SourceRetrievalError(RuntimeError):
+    """An external paper source could not supply usable metadata."""
+
+
 class BaseRetriever(ABC):
     name: str
     conversion_delay_seconds: float = 1
@@ -14,6 +18,7 @@ class BaseRetriever(ABC):
     def __init__(self, config:DictConfig):
         self.config = config
         self.retriever_config = getattr(config.source,self.name)
+        self.retrieval_warnings: list[str] = []
 
     @abstractmethod
     def _retrieve_raw_papers(self) -> list[RawPaperItem]:
@@ -24,6 +29,7 @@ class BaseRetriever(ABC):
         pass
 
     def retrieve_papers(self) -> list[Paper]:
+        self.retrieval_warnings = []
         raw_papers = self._retrieve_raw_papers()
         logger.info("Processing papers...")
         papers = []

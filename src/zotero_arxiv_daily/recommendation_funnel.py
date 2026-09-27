@@ -19,6 +19,7 @@ class RecommendationFunnel:
         self._papers: dict[str, dict] = {}
         self.failure: dict[str, str] | None = None
         self.llm_batches: list[dict] = []
+        self.sources: dict[str, dict] = {}
         self.llm_usage: dict[str, int] = {
             "batch_count": 0,
             "successful_batches": 0,
@@ -89,6 +90,24 @@ class RecommendationFunnel:
         logger.error(f"Recommendation pipeline failed: {type(error).__name__}: {error}")
         self.write()
 
+    def record_source(
+        self,
+        source: str,
+        count: int,
+        *,
+        error: Exception | None = None,
+        warnings: list[str] | None = None,
+    ) -> None:
+        result = {
+            "status": "failed" if error else ("degraded" if warnings else "success"),
+            "paper_count": count,
+            "warnings": list(warnings or []),
+        }
+        if error is not None:
+            result["error"] = {"type": type(error).__name__, "message": str(error)}
+        self.sources[source] = result
+        self.write()
+
     def record_llm_batches(self, batches: list[dict]) -> None:
         self.llm_batches = [dict(batch) for batch in batches]
         self.llm_usage = {
@@ -109,6 +128,7 @@ class RecommendationFunnel:
             "papers": list(self._papers.values()),
             "llm_batches": self.llm_batches,
             "llm_usage": self.llm_usage,
+            "sources": self.sources,
         }
         if self.failure is not None:
             report["failure"] = self.failure
