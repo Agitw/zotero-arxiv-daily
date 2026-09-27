@@ -10,7 +10,7 @@ from .recommendation_history import RecommendationHistory
 from .zotero_local import fetch_local_zotero_corpus
 from .feedback import FeedbackProfile, apply_feedback, fetch_github_issue_feedback, load_feedback_profile
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from .reranker import get_reranker_cls
 from .reranker.base import apply_venue_bonuses
@@ -72,24 +72,31 @@ def filter_recent_papers(
     papers: list,
     now: datetime | None = None,
     holiday_dates: set[date] | frozenset[date] | None = None,
+    openalex_days: int = 2,
 ) -> list:
     current_time = now or datetime.now(SHANGHAI_TIMEZONE)
     if current_time.tzinfo is None:
         current_time = current_time.replace(tzinfo=SHANGHAI_TIMEZONE)
     local_today = current_time.astimezone(SHANGHAI_TIMEZONE).date()
     earliest_date = earliest_allowed_publication_date(local_today, holiday_dates)
+    openalex_earliest_date = min(
+        local_today - timedelta(days=max(1, int(openalex_days)) - 1),
+        earliest_date,
+    )
     filtered = []
     dropped = 0
     for paper in papers:
         published_date = _published_date_as_date(paper.published_date)
-        if published_date is None or not (earliest_date <= published_date <= local_today):
+        source_earliest_date = openalex_earliest_date if paper.source == "openalex" else earliest_date
+        if published_date is None or not (source_earliest_date <= published_date <= local_today):
             dropped += 1
             continue
         filtered.append(paper)
     if dropped:
         logger.info(
-            f"Date filter kept {len(filtered)} papers published from {earliest_date} "
-            f"through {local_today}; dropped {dropped} papers outside that range"
+            f"Date filter kept {len(filtered)} papers through {local_today} "
+            f"(preprints from {earliest_date}, OpenAlex from {openalex_earliest_date}); "
+            f"dropped {dropped} papers outside those ranges"
         )
     return filtered
 
@@ -233,6 +240,7 @@ class Executor:
             logger.warning(f"Continuing with available sources; failed sources: {', '.join(failed_sources)}")
         all_papers = filter_recent_papers(
             all_papers,
+            openalex_days=int(self.config.source.openalex.get("days") or 2),
         )
         funnel.observe("date_filtered", all_papers)
         history_path = self.config.executor.get("recommendation_history_path")

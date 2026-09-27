@@ -16,7 +16,7 @@ source:
     category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
   openalex:
     issns: null # Journal ISSNs to retrieve through OpenAlex. Example: ["1549-9618","1553-7358"]
-    days: 1 # Look back this many days. Example: 1
+    days: 2 # Calendar dates including today; holidays can extend the window. Example: 14
     per_page: 200 # OpenAlex page size. Example: 200
     max_results: 500 # Maximum OpenAlex works retrieved per run. Example: 500
     mailto: null # Optional email for OpenAlex polite pool. Example: you@example.com

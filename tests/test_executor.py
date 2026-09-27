@@ -495,6 +495,29 @@ def test_filter_recent_papers_walks_back_to_workday_after_holiday():
     assert [paper.title for paper in filtered] == ["Last workday", "Holiday", "Today"]
 
 
+def test_filter_recent_papers_uses_openalex_lookback_without_extending_preprints():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from tests.canned_responses import make_sample_paper
+    from zotero_arxiv_daily.executor import filter_recent_papers
+
+    now = datetime(2026, 8, 1, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    papers = [
+        make_sample_paper(title="Oldest journal", published_date="2026-07-19"),
+        make_sample_paper(title="Too old journal", published_date="2026-07-18"),
+        make_sample_paper(title="Recent preprint", published_date="2026-07-31"),
+        make_sample_paper(title="Old preprint", published_date="2026-07-19"),
+        make_sample_paper(title="Future journal", published_date="2026-08-02"),
+    ]
+    for paper in papers[:2] + papers[4:]:
+        paper.source = "openalex"
+
+    filtered = filter_recent_papers(papers, now=now, holiday_dates=set(), openalex_days=14)
+
+    assert [paper.title for paper in filtered] == ["Oldest journal", "Recent preprint"]
+
+
 def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit(
     config, monkeypatch
 ):
@@ -558,6 +581,8 @@ def test_run_includes_every_successful_deepseek_eight_plus_paper_after_top_limit
 
 def test_run_filters_recommendation_history_and_records_only_emailed_papers(config, tmp_path, monkeypatch):
     import json
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
 
     from omegaconf import open_dict
 
@@ -570,6 +595,10 @@ def test_run_filters_recommendation_history_and_records_only_emailed_papers(conf
     already_sent = make_sample_paper(title="Already sent", doi="10.1000/already-sent")
     selected = make_sample_paper(title="Selected", doi="10.1000/selected")
     below_cutoff = make_sample_paper(title="Below cutoff", doi="10.1000/below-cutoff")
+    five_days_ago = (datetime.now(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=5)).isoformat()
+    for paper in (already_sent, selected, below_cutoff):
+        paper.source = "openalex"
+        paper.published_date = five_days_ago
     RecommendationHistory(history_path).record([already_sent])
     with open_dict(config.executor):
         config.executor.recommendation_history_path = str(history_path)

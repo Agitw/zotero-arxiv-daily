@@ -37,14 +37,33 @@ source:
   biorxiv:
     category: ["bioinformatics","biophysics","biochemistry","bioengineering"]
   openalex:
-    # This is the normal minimum lookback; the retriever automatically extends
-    # it for weekends/Chinese holidays before the final Shanghai-time filter.
-    days: 1
+    # Fourteen calendar dates including today; Chinese holidays can extend the window.
+    # Sent papers are removed by recommendation history on subsequent runs.
+    days: 14
     per_page: 200
     max_results: 3000
     mailto: null
     issns:
-      # CAS 2025 Q1/Q2 computational chemistry / cheminformatics
+      # Broad, internationally prominent journals
+      - "0028-0836" # Nature
+      - "0036-8075" # Science
+      - "0092-8674" # Cell
+      - "1755-4330" # Nature Chemistry
+      - "0002-7863" # Journal of the American Chemical Society
+      - "1433-7851" # Angewandte Chemie International Edition
+      - "1552-4450" # Nature Chemical Biology
+      - "1545-9985" # Nature Structural & Molecular Biology
+      - "1097-2765" # Molecular Cell
+      - "0027-8424" # Proceedings of the National Academy of Sciences
+      - "2041-1723" # Nature Communications
+      - "2375-2548" # Science Advances
+      # Major review journals (OpenAlex article and review types)
+      - "0009-2665" # Chemical Reviews
+      - "0306-0012" # Chemical Society Reviews
+      - "0001-4842" # Accounts of Chemical Research
+      - "1474-1776" # Nature Reviews Drug Discovery
+      - "1471-0072" # Nature Reviews Molecular Cell Biology
+      # Computational chemistry / cheminformatics
       - "1549-9618" # Journal of Chemical Theory and Computation
       - "1549-9596" # Journal of Chemical Information and Modeling
       - "1758-2946" # Journal of Cheminformatics
@@ -55,7 +74,7 @@ source:
       - "1520-5207" # The Journal of Physical Chemistry B
       - "2374-7943" # ACS Central Science
       - "2635-098X" # Digital Discovery
-      # CAS 2025 Q1/Q2 computational biology / bioinformatics / structure
+      # Computational biology / bioinformatics / structure
       - "1553-7358" # PLOS Computational Biology
       - "1467-5463" # Briefings in Bioinformatics
       - "1474-760X" # Genome Biology
@@ -76,7 +95,7 @@ source:
       - "2666-3899" # Patterns
       - "2405-4712" # Cell Systems
       - "2666-979X" # Cell Genomics
-      # Additional high-impact AI journal
+      # AI methods
       - "2522-5839" # Nature Machine Intelligence
 
 executor:
@@ -96,9 +115,28 @@ executor:
   reranker: hybrid_llm
 
 reranker:
-  # Final score = max(0, blended relevance + eligible venue bonus + feedback adjustment).
+  # Final score = max(0, blended relevance + venue adjustment + feedback adjustment).
   venue_bonus_min_deepseek_score: 6.0
+  # Signed adjustments: positive values require relevant DeepSeek scoring;
+  # negative values lower peripheral venues even on embedding fallback.
   venue_bonuses:
+    "0028-0836": 0.80 # Nature
+    "0036-8075": 0.80 # Science
+    "0092-8674": 0.80 # Cell
+    "1755-4330": 0.80 # Nature Chemistry
+    "0002-7863": 0.80 # Journal of the American Chemical Society
+    "1433-7851": 0.80 # Angewandte Chemie International Edition
+    "1552-4450": 0.80 # Nature Chemical Biology
+    "1545-9985": 0.80 # Nature Structural & Molecular Biology
+    "1097-2765": 0.80 # Molecular Cell
+    "0027-8424": 0.60 # PNAS
+    "2041-1723": 0.60 # Nature Communications
+    "2375-2548": 0.60 # Science Advances
+    "0009-2665": 0.60 # Chemical Reviews
+    "0306-0012": 0.60 # Chemical Society Reviews
+    "0001-4842": 0.45 # Accounts of Chemical Research
+    "1474-1776": 0.60 # Nature Reviews Drug Discovery
+    "1471-0072": 0.60 # Nature Reviews Molecular Cell Biology
     "2522-5839": 0.80 # Nature Machine Intelligence
     "1548-7091": 0.80 # Nature Methods
     "1087-0156": 0.80 # Nature Biotechnology
@@ -107,10 +145,21 @@ reranker:
     "2041-6539": 0.45 # Chemical Science
     "1474-760X": 0.45 # Genome Biology
     "0305-1048": 0.45 # Nucleic Acids Research
+    "1549-9618": 0.30 # Journal of Chemical Theory and Computation
+    "1549-9596": 0.30 # Journal of Chemical Information and Modeling
+    "0021-9606": 0.30 # Journal of Chemical Physics
+    "1553-7358": 0.30 # PLOS Computational Biology
     "1467-5463": 0.30 # Briefings in Bioinformatics
     "1088-9051": 0.30 # Genome Research
     "2050-084X": 0.30 # eLife
     "1744-4292": 0.30 # Molecular Systems Biology
+    # Peripheral journals remain discoverable when the paper itself is relevant.
+    "1471-2164": -0.30 # BMC Genomics
+    "1532-0464": -0.30 # Journal of Biomedical Informatics
+    "2047-217X": -0.30 # GigaScience
+    "2056-7189": -0.30 # npj Systems Biology and Applications
+    "1089-5639": -0.30 # The Journal of Physical Chemistry A
+    "1520-5207": -0.30 # The Journal of Physical Chemistry B
   hybrid_llm:
     model: deepseek-v4-flash
     embedding_model: BAAI/bge-small-en-v1.5

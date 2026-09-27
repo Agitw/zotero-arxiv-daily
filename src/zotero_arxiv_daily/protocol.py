@@ -99,7 +99,7 @@ class Paper:
     score_source: Optional[str] = None
     llm_scoring_attempted: bool = False
     llm_scoring_succeeded: bool = False
-    venue_bonus: float = 0.0
+    venue_bonus: float = 0.0  # Signed venue adjustment; keep the funnel field name stable.
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')

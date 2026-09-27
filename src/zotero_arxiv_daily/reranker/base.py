@@ -32,29 +32,32 @@ def apply_venue_bonuses(
     venue_bonuses: Mapping[str, float] | None,
     minimum_deepseek_score: float = 6.0,
 ) -> list[Paper]:
-    """Add a capped journal bonus only after a sufficiently relevant DeepSeek score."""
+    """Apply journal priority after relevance scoring, gating positive bonuses."""
     if not venue_bonuses:
         return papers
 
     adjusted = False
     for paper in papers:
         paper.venue_bonus = 0.0
-        if paper.score_source != "deepseek":
-            continue
-        if paper.deepseek_score is None or paper.deepseek_score < minimum_deepseek_score:
-            continue
         venue = (paper.venue or "").strip()
         bonus = get_venue_bonus(paper, venue_bonuses)
-        if bonus <= 0.0:
+        if bonus == 0.0:
             continue
-        paper.score = (paper.score or 0.0) + bonus
+        if bonus > 0.0 and (
+            paper.score_source != "deepseek"
+            or paper.deepseek_score is None
+            or paper.deepseek_score < minimum_deepseek_score
+        ):
+            continue
+        paper.score = max(0.0, (paper.score or 0.0) + bonus)
         paper.venue_bonus = bonus
-        reason = f"高影响力期刊加分：{venue} +{bonus:.2f}"
-        paper.recommendation_reason = (
-            f"{paper.recommendation_reason}；{reason}"
-            if paper.recommendation_reason
-            else reason
-        )
+        if bonus > 0:
+            reason = f"高影响力期刊加分：{venue} +{bonus:.2f}"
+            paper.recommendation_reason = (
+                f"{paper.recommendation_reason}；{reason}"
+                if paper.recommendation_reason
+                else reason
+            )
         adjusted = True
     if not adjusted:
         return papers

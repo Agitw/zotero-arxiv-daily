@@ -44,6 +44,7 @@
   - arxiv
   - biorxiv
   - medrxiv
+  - OpenAlex journal articles and reviews selected by ISSN
 
 ## 📷 Screenshot
 ![screenshot](./assets/screenshot.png)
@@ -205,7 +206,7 @@ This project is in active development. You can subscribe this repo via `Watch` s
 
 
 ## 📖 How it works
-*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. OpenAlex keeps at least the configured one-day lookback plus the workday-grace buffer, then a final Shanghai-time date filter keeps only today's papers and the preceding valid workday window: Monday includes Saturday, and a first workday after a Chinese holiday looks back to the nearest preceding workday. This prevents delayed source feeds from surfacing older papers. A 60-day recommendation history removes papers already sent before reranking.
+*Zotero-arXiv-Daily* retrieves the user's Zotero corpus and new candidate papers from the configured sources. The repository configuration requests 14 Shanghai calendar dates of OpenAlex journal articles and reviews, including today, to cover indexing delays. arXiv and bioRxiv continue to use the recent-publication window with weekend and Chinese-holiday grace. The final date filter applies each source's window. A 60-day recommendation history removes papers already sent before reranking.
 
 Paper-source request failures are isolated so available sources can still reach email delivery. bioRxiv/medRxiv requests have connect/read timeouts and retry invalid JSON or malformed collection responses up to three attempts. If arXiv's metadata API remains unavailable after its retries (including HTTP 406, 429, or temporary server errors), retrieval uses the already fetched Atom feed's titles, abstracts, authors and announcement dates for remaining papers, preserving earlier successful API batches. RSS fallback papers have no downloaded full text; institution extraction may therefore be unavailable. The recommendation funnel report records each source as `success`, `degraded`, or `failed`, including fallback warnings and request errors. If every source raises a retrieval error, the run fails explicitly.
 
@@ -213,10 +214,10 @@ The hybrid reranker embeds every unseen candidate. Within its 100-paper LLM budg
 
 For a successfully scored paper, blended relevance is `0.7 * DeepSeek score + 0.3 * embedding score`. Unscored and failed-batch papers use their embedding score. The final ranking score is:
 
-`final score = max(0, blended relevance + eligible venue bonus + feedback adjustment)`
+`final score = max(0, blended relevance + venue adjustment + feedback adjustment)`
 
 - Both DeepSeek and embedding relevance are on a 0–10 scale.
-- A venue bonus is allowed only when the paper was actually scored by DeepSeek and its DeepSeek relevance is at least `6.0`. OpenAlex ISSNs are matched first; an exact case-insensitive venue name remains a fallback. Configured bonuses are `+0.80`, `+0.60`, `+0.45`, or `+0.30`.
+- A positive venue bonus is allowed only when the paper was actually scored by DeepSeek and its DeepSeek relevance is at least `6.0`. Small negative adjustments lower peripheral journals after relevance scoring, including embedding fallback papers. OpenAlex ISSNs are matched first; an exact case-insensitive venue name remains a fallback. Configured adjustments range from `-0.30` to `+0.80`.
 - `feedback adjustment` is the existing additive preference/feedback score, such as positive keywords or explicit likes and dislikes.
 
 For example, a Nature Machine Intelligence paper with embedding relevance `7.0` and DeepSeek relevance `8.0` receives blended relevance `7.7` and the `+0.80` venue bonus, for `8.5` before feedback. A failed-batch paper receives no venue bonus, even if it is from the same journal. Venue bonuses are applied before email selection. The email contains the final-ranking top `max_paper_num` papers plus every remaining successfully evaluated paper whose raw DeepSeek relevance reaches `include_all_deepseek_score_at_least`; the custom configuration uses 30 and 8.0 respectively. If `rerank_candidate_num` is configured, that earlier candidate limit is applied first; the repository default leaves it unset.

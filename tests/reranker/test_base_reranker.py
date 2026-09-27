@@ -136,3 +136,20 @@ def test_apply_venue_bonuses_prefers_issn_over_journal_name_fallback():
 
     assert paper.score == pytest.approx(4.8)
     assert "Publisher display name +0.80" in paper.recommendation_reason
+
+
+def test_apply_venue_bonuses_can_lower_peripheral_journal_priority():
+    peripheral = make_sample_paper(
+        title="Peripheral",
+        venue="BMC Genomics",
+        venue_issns=["1471-2164"],
+        score=8.0,
+        score_source="embedding_fallback",
+    )
+    core = make_sample_paper(title="Core", score=7.8)
+
+    ranked = apply_venue_bonuses([peripheral, core], {"1471-2164": -0.3})
+
+    assert ranked == [core, peripheral]
+    assert peripheral.score == pytest.approx(7.7)
+    assert peripheral.venue_bonus == pytest.approx(-0.3)

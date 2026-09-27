@@ -43,9 +43,9 @@ class OpenAlexRetriever(BaseRetriever):
             raise ValueError("issns must be specified for openalex.")
 
     def _retrieve_raw_papers(self) -> list[dict[str, Any]]:
-        days = int(self.retriever_config.get("days") or 1)
+        days = max(1, int(self.retriever_config.get("days") or 2))
         until_date = datetime.now(SHANGHAI_TIMEZONE).date()
-        configured_from_date = until_date - timedelta(days=days)
+        configured_from_date = until_date - timedelta(days=days - 1)
         grace_from_date = earliest_allowed_publication_date(until_date)
         from_date = min(configured_from_date, grace_from_date)
         per_page = int(self.retriever_config.get("per_page") or 200)
@@ -60,7 +60,7 @@ class OpenAlexRetriever(BaseRetriever):
                 filters = [
                     f"from_publication_date:{from_date.isoformat()}",
                     f"to_publication_date:{until_date.isoformat()}",
-                    "type:article",
+                    "type:article|review",
                     "has_abstract:true",
                     f"locations.source.issn:{'|'.join(issn_batch)}",
                 ]

@@ -81,6 +81,7 @@ def test_openalex_retriever_returns_articles_with_reconstructed_abstract(config,
     assert papers[0].external_id == "https://openalex.org/W123"
     assert papers[0].published_date == "2026-07-02"
     assert calls[0][1]["filter"].startswith("from_publication_date:")
+    assert "type:article|review" in calls[0][1]["filter"]
     assert "locations.source.issn:1549-9618" in calls[0][1]["filter"]
 
 
@@ -169,6 +170,35 @@ def test_openalex_retriever_uses_shanghai_calendar_date_for_window(config, monke
 
     OpenAlexRetriever(config).retrieve_papers()
 
+    assert "to_publication_date:2026-08-01" in calls[0]["filter"]
+
+
+def test_openalex_retriever_uses_fourteen_calendar_dates(config, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    calls = []
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 1, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    def _get(url, params=None, timeout=None):
+        calls.append(params)
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"results": [], "meta": {"next_cursor": None}},
+        )
+
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.datetime", FrozenDateTime)
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.openalex_retriever.requests.get", _get)
+    with open_dict(config.source):
+        config.source.openalex = {"issns": ["1549-9618"], "days": 14}
+
+    OpenAlexRetriever(config).retrieve_papers()
+
+    assert "from_publication_date:2026-07-19" in calls[0]["filter"]
     assert "to_publication_date:2026-08-01" in calls[0]["filter"]
 
 
