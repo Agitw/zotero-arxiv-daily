@@ -39,7 +39,7 @@ def test_tldr_without_abstract_or_fulltext(llm_params):
     assert "Failed to generate TLDR" in result
 
 
-def test_tldr_falls_back_to_local_missing_fields_on_error(llm_params):
+def test_tldr_falls_back_to_abstract_excerpt_on_error(llm_params):
     paper = make_sample_paper()
 
     # Client whose create() raises
@@ -51,7 +51,9 @@ def test_tldr_falls_back_to_local_missing_fields_on_error(llm_params):
         )
     )
     result = paper.generate_tldr(broken_client, llm_params)
-    assert result.count("摘要未说明") == 5
+    assert "摘要原文" in result
+    assert paper.abstract in result
+    assert "摘要未说明" not in result
 
 
 def test_tldr_uses_title_and_abstract_but_not_full_text(llm_params):
@@ -93,11 +95,10 @@ def test_tldr_prompt_requests_richer_scientific_summary(llm_params):
     paper.generate_tldr(client, llm_params)
 
     request_text = str(calls[0]["messages"])
-    assert "research_problem" in request_text
-    assert "solution_approach" in request_text
-    assert "core_method" in request_text
-    assert "key_results" in request_text
-    assert "main_conclusion" in request_text
+    assert "problem" in request_text.lower()
+    assert "method" in request_text.lower()
+    assert "result" in request_text.lower()
+    assert "conclusion" in request_text.lower()
 
 
 def test_tldr_prompt_explicitly_requests_chinese_output(llm_params):
@@ -149,11 +150,11 @@ def test_chinese_tldr_prompt_requests_research_reading_structure(llm_params):
     paper.generate_tldr(client, llm_params)
 
     request_text = str(calls[0]["messages"])
-    assert "摘要未说明" in request_text
+    assert "摘要未说明" not in request_text
     assert "不得根据常识补全" in request_text
 
 
-def test_chinese_tldr_does_not_make_a_second_format_repair_call(llm_params):
+def test_chinese_tldr_preserves_useful_prose_when_json_is_unavailable(llm_params):
     calls = []
     responses = ["Deep learning has outgrown any single mathematical explanation."]
 
@@ -175,7 +176,54 @@ def test_chinese_tldr_does_not_make_a_second_format_repair_call(llm_params):
     result = paper.generate_tldr(client, llm_params)
 
     assert len(calls) == 1
-    assert result.count("摘要未说明") == 5
+    assert "Deep learning has outgrown any single mathematical explanation." in result
+    assert "摘要未说明" not in result
+
+
+def test_tldr_does_not_fill_missing_sections_with_repeated_placeholders(llm_params):
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(
+                        content='{"research_problem":"How do protein variants affect function?",'
+                                '"key_results":"摘要未说明"}'
+                    ))]
+                )
+            )
+        )
+    )
+    paper = make_sample_paper(abstract="We predict protein variant effects from sequence and structure.")
+
+    result = paper.generate_tldr(client, llm_params)
+
+    assert "How do protein variants affect function?" in result
+    assert paper.abstract in result
+    assert "摘要未说明" not in result
+
+
+def test_tldr_uses_original_abstract_when_every_model_field_is_missing(llm_params):
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=(
+                        '{"research_problem":"摘要未说明",'
+                        '"solution_approach":"摘要未说明"}'
+                    )))]
+                )
+            )
+        )
+    )
+    paper = make_sample_paper(
+        abstract="We model protein conformational ensembles to predict variant effects."
+    )
+
+    result = paper.generate_tldr(client, llm_params)
+
+    assert "摘要原文" in result
+    assert paper.abstract in result
+    assert "摘要未说明" not in result
 
 
 # ---------------------------------------------------------------------------

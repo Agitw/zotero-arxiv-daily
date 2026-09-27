@@ -34,7 +34,14 @@ def _json_object_from_text(text: str | None) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def format_structured_tldr(text: str | None) -> str:
+def _abstract_excerpt(abstract: str | None) -> str:
+    excerpt = " ".join((abstract or "").split())[:1000].rstrip()
+    if not excerpt:
+        return ""
+    return f"摘要原文（节选）：{excerpt}"
+
+
+def format_structured_tldr(text: str | None, abstract: str | None = None) -> str:
     data = _json_object_from_text(text)
     if not data:
         for _, label in TLDR_FIELDS:
@@ -46,11 +53,20 @@ def format_structured_tldr(text: str | None) -> str:
                 data[label] = match.group(1).strip()
     lines = []
     for key, label in TLDR_FIELDS:
-        value = data.get(key, data.get(label, TLDR_MISSING))
-        if not isinstance(value, str) or not value.strip():
-            value = TLDR_MISSING
-        lines.append(f"{label}：{value.strip()}")
-    return "\n".join(lines)
+        value = data.get(key, data.get(label))
+        if isinstance(value, str) and value.strip() and value.strip() != TLDR_MISSING:
+            lines.append(f"{label}：{value.strip()}")
+    if lines:
+        if len(lines) == 1 and (excerpt := _abstract_excerpt(abstract)):
+            lines.append(excerpt)
+        return "\n".join(lines)
+
+    prose = (text or "").strip()
+    if prose and not prose.startswith(("{", "```")):
+        useful_lines = [line for line in prose.splitlines() if TLDR_MISSING not in line]
+        if useful_lines:
+            return "\n".join(useful_lines).strip()
+    return _abstract_excerpt(abstract)
 
 
 def format_affiliations(
@@ -107,26 +123,21 @@ class Paper:
         if use_chinese:
             prompt = (
                 "请只根据以下标题和摘要整理中文论文解读。不得根据常识补全摘要没有提供的信息。\n"
-                "返回一个 JSON 对象且不要添加其他文字，必须包含以下字符串字段："
-                "research_problem（研究问题）、solution_approach（解决思路）、"
-                "core_method（核心方法）、key_results（关键结果）、"
-                "main_conclusion（主要结论）。"
-                "每项使用 1-2 句；若摘要没有提供对应信息，字段值必须写“摘要未说明”。\n\n"
+                "用 2-4 句简洁中文说明摘要明确提供的研究问题、解决思路、核心方法、"
+                "关键结果和主要结论；缺少证据的方面直接省略。不要输出 JSON 或空栏目。\n\n"
             )
             system_prompt = (
-                "你是严谨的科研论文解读助手。只依据提供的标题和摘要，用中文返回指定 JSON。"
+                "你是严谨的科研论文解读助手。只依据提供的标题和摘要，用中文给出简洁解读。"
             )
         else:
             prompt = (
                 f"Use only the title and abstract to summarize this paper in {lang}. "
-                "Do not infer facts absent from the abstract. Return one JSON object with "
-                "the string fields research_problem, solution_approach, core_method, "
-                "key_results, and main_conclusion. Use '摘要未说明' when the abstract "
-                "does not provide a field. Return JSON only.\n\n"
+                "Write 2-4 concise sentences covering the research problem, method, "
+                "key results, and conclusion only where the abstract supports them. "
+                "Omit unsupported aspects. Do not infer missing facts or return JSON.\n\n"
             )
             system_prompt = (
-                "You are a precise scientific paper analyst. Return only the requested JSON "
-                f"in {lang}."
+                f"You are a precise scientific paper analyst. Summarize only the supplied evidence in {lang}."
             )
         if self.title:
             prompt += f"Title:\n {self.title}\n\n"
@@ -154,7 +165,7 @@ class Paper:
             ],
             **llm_params.get('generation_kwargs', {})
         )
-        return format_structured_tldr(response.choices[0].message.content)
+        return format_structured_tldr(response.choices[0].message.content, self.abstract)
     
     def generate_tldr(self, openai_client:OpenAI,llm_params:dict) -> str:
         try:
@@ -163,7 +174,7 @@ class Paper:
             return tldr
         except Exception as e:
             logger.warning(f"Failed to generate tldr of {self.url}: {e}")
-            tldr = format_structured_tldr(None)
+            tldr = _abstract_excerpt(self.abstract)
             self.tldr = tldr
             return tldr
 
