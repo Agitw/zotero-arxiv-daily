@@ -1,77 +1,28 @@
-name: Send emails daily
+name: ENSEMBITS one-off literature delivery
 on:
   workflow_dispatch:
-  schedule:
-    # 06:00 Asia/Shanghai daily (22:00 UTC on the previous calendar day).
-    - cron: '0 22 * * *'
-
 permissions:
   contents: read
-  issues: read
-
+concurrency:
+  group: ensembits-one-off-20261016
+  cancel-in-progress: false
 jobs:
-  calculate-and-send:
+  deliver:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Cache Hugging Face models
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: hf-models-${{ runner.os }}-${{ hashFiles('config/base.yaml', 'config/custom.yaml', 'pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            hf-models-${{ runner.os }}-
-
-      - name: Restore Zotero embedding cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .cache/zotero-corpus-embeddings.json
-          key: zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}
-          restore-keys: |
-            zotero-corpus-embeddings-${{ runner.os }}-${{ github.ref_name }}-
-
-      - name: Restore recommendation history
-        uses: actions/cache/restore@v4
-        with:
-          path: .cache/recommendation-history.json
-          key: recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-
-
-      - name: Run script
+      - uses: actions/checkout@v6
+      - name: Send curated topic report exactly once
         env:
-          ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
-          ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
           SENDER: ${{ secrets.SENDER }}
           RECEIVER: ${{ secrets.RECEIVER }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
-          FEEDBACK_ENDPOINT: ${{ secrets.FEEDBACK_ENDPOINT }}
-          FEEDBACK_SECRET: ${{ secrets.FEEDBACK_SECRET }}
-        run: |
-          echo "Use custom config: "
-          cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py
-
-      - name: Save recommendation history
-        if: success() && hashFiles('.cache/recommendation-history.json') != ''
-        uses: actions/cache/save@v4
-        with:
-          path: .cache/recommendation-history.json
-          key: recommendation-history-main-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-
-      - name: Upload recommendation funnel
+        run: node .github/scripts/send-ensembits-20261016.cjs
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: recommendation-funnel-${{ github.run_id }}
-          path: outputs/recommendation-funnel.json
-          if-no-files-found: warn
+          name: ensembits-literature-20261016
+          path: |
+            docs/research/ensembits-2026-10-16.*
+            outputs/ensembits-delivery.json
+          if-no-files-found: error
